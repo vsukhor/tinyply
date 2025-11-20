@@ -2,8 +2,6 @@
 ![build](https://github.com/vsukhor/tinyply/actions/workflows/cmake.yml/badge.svg)
 [![License is Unlicense](http://img.shields.io/badge/license-Unlicense-blue.svg?style=flat)](http://unlicense.org/)
 
-tinyply
-
 A zero-dependency (except the C++ STL) __public domain__ implementation of the PLY file format convenient for import/export of geometry or topology data like graphs, meshes, polymer structures, etc. This is a restructured version based on C++ [implementation](http://paulbourke.net/dataformats/ply/) by [Dimitri Diakopoulos](http://www.dimitridiakopoulos.com). An overview and definition of the file format is available [here](http://paulbourke.net/dataformats/ply/) along with the reference implementation in C. PLY format is often used in the computer vision and graphics communities for its relative simplicity, ability to support arbitrary mesh attributes, and binary modes. Famously, PLY is used to distribute 3D models in the [Stanford 3D Scanning Repository](http://graphics.stanford.edu/data/3Dscanrep/), including the bunny.
 
 This version of the library uses elements of C++20 and so requires a relatively recent compiler (e.g. GCC 14 is sufficient). _tinyply_ supports exporting and importing PLY files in both binary and ascii formats. It may be used for filesizes >= 4gb and can read big-endian binary files (but not write them).
