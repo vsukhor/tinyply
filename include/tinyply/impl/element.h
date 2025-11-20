@@ -59,7 +59,7 @@ namespace tinyply::impl {
 
 
 // IMPLEMENTATION ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#ifdef TINYPLY_LINK_AS_LIBRARY
+#ifdef TINYPLY_AS_LIBRARY
 
 namespace tinyply::impl {
 
@@ -154,5 +154,5 @@ report(std::string_view pref) const noexcept
 
 }  // namespace tinyply::impl
 
-#endif  // TINYPLY_LINK_AS_LIBRARY
+#endif  // TINYPLY_AS_LIBRARY
 #endif  // TINYPLY_IMPL_ELEMENT_H

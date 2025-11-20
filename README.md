@@ -9,7 +9,7 @@ This version of the library uses elements of C++20 and so requires a relatively 
 ## Usage
 
 _tinyply_ can be used both as a header-only and as a precompiled library.
-Most conveniently, the swithc between the two is done via cmake by defining TINYPLY_LINK_AS_LIBRARY.
+Most conveniently, the switch between the two is done by defining TINYPLY_AS_LIBRARY.
 
 If on the ohter hand you prefer to use the headers alone, you may just include either 'tinyply.h' or each of 'reader.h' or 'writer.h'
 directly into your project.

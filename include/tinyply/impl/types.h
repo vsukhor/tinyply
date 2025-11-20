@@ -119,11 +119,11 @@ using Type = impl::Type;
 
 }  // namespace tinyply
 
-#ifdef TINYPLY_LINK_AS_LIBRARY
+#ifdef TINYPLY_AS_LIBRARY
 
 namespace tinyply::impl {
 
 }  // namespace tinyply::impl
 
-#endif  // TINYPLY_LINK_AS_LIBRARY
+#endif  // TINYPLY_AS_LIBRARY
 #endif  // TINYPLY_IMPL_TYPES_H

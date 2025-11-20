@@ -90,7 +90,7 @@ namespace tinyply {
 
 
 // IMPLEMENTATION ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#ifdef TINYPLY_LINK_AS_LIBRARY
+#ifdef TINYPLY_AS_LIBRARY
 
 namespace tinyply {
 
@@ -153,5 +153,5 @@ report_structure() const noexcept
 
 }  // namespace tinyply
 
-#endif  // TINYPLY_LINK_AS_LIBRARY
+#endif  // TINYPLY_AS_LIBRARY
 #endif  // TINYPLY_READER_H

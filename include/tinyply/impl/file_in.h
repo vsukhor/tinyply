@@ -78,7 +78,7 @@ struct FileIn {
 
 
 // IMPLEMENTATION ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#ifdef TINYPLY_LINK_AS_LIBRARY
+#ifdef TINYPLY_AS_LIBRARY
 
 namespace tinyply::impl {
 
@@ -482,5 +482,5 @@ read(std::istream& is)
 
 }  // namespace tinyply::impl
 
-#endif  // TINYPLY_LINK_AS_LIBRARY
+#endif  // TINYPLY_AS_LIBRARY
 #endif  // TINYPLY_IMPL_FILE_IN_H

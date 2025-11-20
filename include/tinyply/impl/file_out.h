@@ -80,7 +80,7 @@ struct FileOut {
 
 
 // IMPLEMENTATION ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#ifdef TINYPLY_LINK_AS_LIBRARY
+#ifdef TINYPLY_AS_LIBRARY
 
 namespace tinyply::impl {
 
@@ -174,7 +174,7 @@ write(const std::filesystem::path& p,
     if (ost.fail())
         throw std::runtime_error("failed to open " + p.string());
 
-        std::cout << "writing to " << p.string() << std::endl;
+    std::cout << "writing to " << p.string() << std::endl;
 
     write(ost, asBinary);
 }
@@ -279,5 +279,5 @@ write_ascii(std::ostream& os) noexcept
 
 }  // namespace tinyply::impl
 
-#endif  // TINYPLY_LINK_AS_LIBRARY
+#endif  // TINYPLY_AS_LIBRARY
 #endif  // TINYPLY_IMPL_FILE_OUT_H

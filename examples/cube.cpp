@@ -193,7 +193,7 @@ std::optional<T> read(const std::filesystem::path& file,
 
         if (vertices)   std::cout << "\tRead " << vertices->count  << " total vertices "<< std::endl;
         if (normals)    std::cout << "\tRead " << normals->count   << " total vertex normals " << std::endl;
-        if (colors)     std::cout << "\tRead " << colors->count << " total vertex colors " << std::endl;
+        if (colors)     std::cout << "\tRead " << colors->count    << " total vertex colors " << std::endl;
         if (texcoords)  std::cout << "\tRead " << texcoords->count << " total vertex texcoords " << std::endl;
         if (faces)      std::cout << "\tRead " << faces->count     << " total faces (triangles) " << std::endl;
         if (tripstrip)  std::cout << "\tRead " << tripstrip->num_items() << " total indices (tristrip) " << std::endl;

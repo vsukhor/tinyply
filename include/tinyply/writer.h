@@ -76,7 +76,7 @@ namespace tinyply {
 
 
 // IMPLEMENTATION ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#ifdef TINYPLY_LINK_AS_LIBRARY
+#ifdef TINYPLY_AS_LIBRARY
 
 namespace tinyply {
 
@@ -137,5 +137,5 @@ add_properties_to_element(const std::string& elementKey,
 
 }  // namespace tinyply
 
-#endif  // TINYPLY_LINK_AS_LIBRARY
+#endif  // TINYPLY_AS_LIBRARY
 #endif  // TINYPLY_WRITER_H
