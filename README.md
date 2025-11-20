@@ -1,5 +1,5 @@
 # tinyply
-
+![build](https://github.com/vsukhor/tinyply/actions/workflows/cmake.yml/badge.svg)
 [![License is Unlicense](http://img.shields.io/badge/license-Unlicense-blue.svg?style=flat)](http://unlicense.org/)
 
 tinyply
