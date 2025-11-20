@@ -46,7 +46,6 @@ jobs:
         echo =============== Update gcc ======================================
         echo gcc version before:
         gcc --version
-        sudo sed -i -e 's/^Suites: unstable/Suites: unstable experimental/' /etc/apt/sources.list.d/debian.sources
         sudo add-apt-repository ppa:ubuntu-toolchain-r/test
         sudo apt-get update
         sudo apt-get install ninja-build gcc-14 g++-14
