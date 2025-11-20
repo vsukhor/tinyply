@@ -14,8 +14,7 @@
 // these files are not re-distributed.
 
 #include "../examples/utils.h"
-#include "../tinyply/in.h"
-#include "../tinyply/out.h"
+#include "../tinyply/tinyply.h"
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
@@ -25,7 +24,8 @@
 namespace tinyply::tests::doc {
 using namespace tinyply::impl;
 
-void transcode_ply_file(File& file,
+template<typename T>
+void transcode_ply_file(T& file,
                         const std::filesystem::path& filepath)
 {
     auto filename = filepath.parent_path() / filepath.stem();
@@ -50,7 +50,7 @@ bool parse_ply_file(const std::string& filepath)
     try {
         if (filestream.is_open()) {
 
-            File file;
+            impl::FileIn file;
 
             filestream.seekg(0, std::ios::end);
             const float size_mb = filestream.tellg() * float(1e-6);
@@ -231,7 +231,7 @@ TEST_CASE("requested property groups must all share the same type")
 {
     std::ifstream filestream("../assets/validate/invalid/payload.empty.ply",
                              std::ios::binary);
-    File file;
+    impl::FileIn file;
     bool header_result = file.header.parse(filestream);
     CHECK_THROWS_AS(file.request_properties_from_element(
         "vertex", { "x", "y", "z", "r", "g", "b", "a", "uv1", "uv2" }),
@@ -243,7 +243,7 @@ TEST_CASE("requested property groups must all share the same type")
 TEST_CASE("check for invalid strings in the header")
 {
     std::ifstream filestream("../assets/validate/invalid/kcrane.bob.meshconvert.com.ply", std::ios::binary);
-    File file;
+    impl::FileIn file;
     bool header_result = file.header.parse(filestream);
     REQUIRE_FALSE(header_result);
 }
@@ -254,7 +254,7 @@ TEST_CASE("check that variable length lists are unsupported (without crashing)")
     auto variable_length_test = [](const std::string & filepath)
     {
         std::ifstream filestream(filepath, std::ios::binary);
-        File file;
+        impl::FileIn file;
         bool header_result = file.header.parse(filestream);
         REQUIRE(header_result);
 
