@@ -44,11 +44,11 @@ namespace tinyply {
         void write(const std::filesystem::path& p,
                    bool asBinary);
 
-        constexpr bool is_binary() const noexcept;
+        bool is_binary() const noexcept;
 
-        constexpr void add_comment(const std::string& str) noexcept;
+        void add_comment(const std::string& str) noexcept;
 
-        constexpr impl::Element& add_element(const std::string& elementKey) noexcept;
+        impl::Element& add_element(const std::string& elementKey) noexcept;
         /*
          * In the general case where |list_size_hint| is zero, `read` performs
          * a two-passparse to support variable length lists.
@@ -97,19 +97,19 @@ write(const std::filesystem::path& p,
     return file->write(p, asBinary);
 }
 
-constexpr void Writer::
+void Writer::
 add_comment(const std::string& str) noexcept
 {
     file->header.comments.push_back(str);
 }
 
-constexpr bool Writer::
+bool Writer::
 is_binary() const noexcept
 {
     return file->header.isBinary;
 }
 
-constexpr impl::Element& Writer::
+impl::Element& Writer::
 add_element(const std::string& elementKey) noexcept
 {
     return file->add_element(elementKey);

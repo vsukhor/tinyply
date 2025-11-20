@@ -63,7 +63,7 @@ namespace tinyply {
         std::vector<impl::Element> get_elements() const;
         std::vector<std::string> get_info() const;
         std::vector<std::string>& comments();
-        constexpr bool is_binary() const;
+        bool is_binary() const;
 
         /*
          * Reader the general case where |list_size_hint| is zero, `read` performs
@@ -127,7 +127,7 @@ get_info() const
     return file->header.objInfo;
 }
 
-constexpr bool Reader::
+bool Reader::
 is_binary() const
 {
     return file->header.isBinary;

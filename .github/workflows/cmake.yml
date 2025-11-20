@@ -19,7 +19,7 @@ jobs:
         matrix:
             config:
             - {
-                name: "Ubuntu_latest_gcc-15",
+                name: "Ubuntu_latest_gcc-14",
                 os: ubuntu-latest,
                 build_type: "Release",
                 cc: "gcc",
@@ -29,8 +29,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Install dependencies on Ubuntu_latest_gcc-15
-      if: startsWith(matrix.config.name, 'Ubuntu_latest_gcc-15')
+    - name: Install dependencies on Ubuntu_latest_gcc-14
+      if: startsWith(matrix.config.name, 'Ubuntu_latest_gcc-14')
       run: |
         echo =============== Install dependencies ==========================
         sudo apt-get update
@@ -46,10 +46,11 @@ jobs:
         echo =============== Update gcc ======================================
         echo gcc version before:
         gcc --version
+        sudo sed -i -e 's/^Suites: unstable/Suites: unstable experimental/' /etc/apt/sources.list.d/debian.sources
         sudo add-apt-repository ppa:ubuntu-toolchain-r/test
         sudo apt-get update
-        sudo apt-get install ninja-build gcc-15 g++-15
-        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 91 --slave /usr/bin/g++ g++ /usr/bin/g++-15 --slave /usr/bin/gcov gcov /usr/bin/gcov-15
+        sudo apt-get install ninja-build gcc-14 g++-14
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 91 --slave /usr/bin/g++ g++ /usr/bin/g++-14 --slave /usr/bin/gcov gcov /usr/bin/gcov-14
         echo gcc version after
         gcc --version
 

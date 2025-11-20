@@ -17,6 +17,7 @@
 #include "impl/data_buffer.h"
 #include "impl/header.h"
 
+#include <algorithm>
 #include <cstdint>  // uint8_t, int8_t, uint16_t, int16_t, etc
 #include <cstring>  // memcpy
 #include <filesystem>

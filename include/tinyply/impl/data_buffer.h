@@ -81,7 +81,7 @@ namespace tinyply::impl {
             , isList {isList}
         {}
 
-        explicit constexpr Data(
+        explicit Data(
             const Type t,
             Buffer&& buffer,
             const size_t count,
@@ -93,7 +93,7 @@ namespace tinyply::impl {
             , isList {isList}
         {}
 
-        constexpr size_t num_items() const noexcept;
+        size_t num_items() const noexcept;
 
         void swap_endanness() noexcept;
     };
@@ -111,7 +111,7 @@ namespace tinyply::impl {
 
 namespace tinyply::impl {
 
-    constexpr size_t Data::
+    size_t Data::
     num_items() const noexcept
     {
         return (buffer.size_bytes() / types.at(t).stride);

@@ -60,21 +60,21 @@ uint64_t endian_swap<uint64_t, uint64_t>(const uint64_t& v) noexcept
             ((v & 0xff00000000000000LL) >> 56));
 }
 
-template<> constexpr
+template<> inline
 int16_t endian_swap<int16_t, int16_t>(const int16_t& v) noexcept
 {
     uint16_t r = endian_swap<uint16_t, uint16_t>(*(uint16_t*)&v);
     return *(int16_t*)&r;
 }
 
-template<> constexpr
+template<> inline
 int32_t endian_swap<int32_t, int32_t>(const int32_t& v) noexcept
 {
     uint32_t r = endian_swap<uint32_t, uint32_t>(*(uint32_t*)&v);
     return *(int32_t*)&r;
 }
 
-template<> constexpr
+template<> inline
 int64_t endian_swap<int64_t, int64_t>(const int64_t& v) noexcept
 {
     uint64_t r = endian_swap<uint64_t, uint64_t>(*(uint64_t*)&v);
@@ -118,7 +118,7 @@ void endian_swap_buffer(
 
 // Hash ========================================================================
 
-constexpr uint32_t hash_fnv1a(const std::string& str) noexcept
+uint32_t hash_fnv1a(const std::string& str) noexcept
 {
     static constexpr uint32_t fnv1aBase32 {0x811C9DC5u};
     static constexpr uint32_t fnv1aPrime32 {0x01000193u};
