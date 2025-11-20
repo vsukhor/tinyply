@@ -4,45 +4,35 @@
 // https://github.com/ddiakopoulos/tinyply
 
 // ~ Work in Progress ~
-// This implements a suit of file format conformance tests. Running this currently requires a very large
-// folder of assets that have been sourced from a variety of internet sources, transcoded or exported
-// from known ply-compatible software including Houdini, VTK, CGAL, Meshlab, Matlab, Blender, Draco, Assimp,
-// the Stanford 3D Scanning Repository, and others. Because of the wide variety of sources and copyright issues, 
-// these files are not re-distributed. 
+// This implements a suit of file format conformance tests.
+// Running this currently requires a very large
+// folder of assets that have been sourced from a variety of internet sources,
+// transcoded or exported from known ply-compatible software including Houdini,
+// VTK, CGAL, Meshlab, Matlab, Blender, Draco, Assimp,
+// the Stanford 3D Scanning Repository, and others.
+// Because of the wide variety of sources and copyright issues,
+// these files are not re-distributed.
 
-#include "tinyply.h"
-using namespace tinyply;
-
-#include "example-utils.hpp"
+#include "../examples/utils.h"
+#include "../tinyply/in.h"
+#include "../tinyply/out.h"
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
-inline std::string get_filename_without_extension(const std::string& path)
-{
-    if (path.find_last_of(".") != std::string::npos && path.find_last_of("\\") != std::string::npos)
-    {
-        size_t end = path.find_last_of(".");
-        size_t start = path.find_last_of("\\") + 1;
-        return path.substr(start, end - start);
-    }
-    else if (path.find_last_of(".") != std::string::npos && path.find_last_of("/") != std::string::npos)
-    {
-        size_t end = path.find_last_of(".");
-        size_t start = path.find_last_of("/") + 1;
-        return path.substr(start, end - start);
-    }
-    return path;
-}
+#include <string>
 
-void transcode_ply_file(PlyFile & file, const std::string & filepath)
-{
-    auto filename = get_filename_without_extension(filepath);
+namespace tinyply::tests::doc {
+using namespace tinyply::impl;
 
-    std::filebuf fb_binary;
-    fb_binary.open(filename + "-transcode-binary.ply", std::ios::out | std::ios::binary);
-    std::ostream outstream_binary(&fb_binary);
-    if (outstream_binary.fail()) throw std::runtime_error("failed to open " + filename);
+void transcode_ply_file(File& file,
+                        const std::filesystem::path& filepath)
+{
+    auto filename = filepath.parent_path() / filepath.stem();
+    filename += "-transcode-binary.ply";
+    std::ofstream outstream_binary(filename, std::ios::binary);
+    if (outstream_binary.fail())
+        throw std::runtime_error("failed to open " + filename.string());
     file.write(outstream_binary, true);
 
     //std::filebuf fb_ascii;
@@ -52,81 +42,93 @@ void transcode_ply_file(PlyFile & file, const std::string & filepath)
     //file.write(outstream_ascii, false);
 }
 
-bool parse_ply_file(const std::string & filepath)
+bool parse_ply_file(const std::string& filepath)
 {
     manual_timer timer;
     std::ifstream filestream(filepath, std::ios::binary);
 
-    try
-    {
-        if (filestream.is_open())
-        {
-            PlyFile file;
+    try {
+        if (filestream.is_open()) {
+
+            File file;
 
             filestream.seekg(0, std::ios::end);
             const float size_mb = filestream.tellg() * float(1e-6);
             filestream.seekg(0, std::ios::beg);
 
-            bool header_result = file.parse_header(filestream);
+            bool header_result = file.header.parse(filestream);
 
             // All ply files are required to have a vertex element
-            std::unordered_map<std::string, std::shared_ptr<PlyData>> vertex_element;
+            std::unordered_map<std::string,
+                               std::shared_ptr<Data>> vertex_element;
 
-            std::cout << "testing: " << filepath << " - filetype: " << (file.is_binary_file() ? "binary" : "ascii") << std::endl;
+            std::cout << "testing: " << filepath
+                      << " - filetype: " << (file.header.isBinary ? "binary"
+                                                                  : "ascii")
+                      << std::endl;
 
-            REQUIRE(file.get_elements().size() > 0);
+            REQUIRE(file.header.elements.size() > 0);
 
             std::string likely_face_property_name;
             // Extract a fat vertex structure (will likely include more than xyz)
-            for (const auto & e : file.get_elements())
+            for (const auto & e : file.header.elements)
             {
                 if (e.name == "vertex")
                 {
                     REQUIRE(e.properties.size() > 0);
-                    for (const auto & p : e.properties)
-                    {
-                        try { vertex_element[p.name] = file.request_properties_from_element(e.name, { p.name }); }
+                    for (const auto & p : e.properties) {
+
+                        try {
+                            vertex_element[p.name] = file.request_properties_from_element(e.name, {p.name});
+                        }
                         catch (const std::exception & e) { /**/ }
                     }
                 }
 
                 // Heuristic...
                 if (e.name == "face")
-                {
-                    for (int i = 0; i < 1; ++i) likely_face_property_name = e.properties[i].name;
-                }
+                    for (int i = 0; i < 1; ++i)
+                        likely_face_property_name = e.properties[i].name;
             }
 
-            std::shared_ptr<PlyData> faces, tripstrip;
+            std::shared_ptr<Data> faces, tripstrip;
 
-            if (!likely_face_property_name.empty())
-            {
-                try { faces = file.request_properties_from_element("face", { likely_face_property_name }, 0); }
-                catch (const std::exception& e) { /**/  }
+            if (!likely_face_property_name.empty()) {
 
-                try { tripstrip = file.request_properties_from_element("tristrips", { likely_face_property_name }, 0); }
-                catch (const std::exception& e) { /**/  }
+                try {
+                    faces = file.request_properties_from_element("face",
+                                                                 {likely_face_property_name},
+                                                                 0);
+                }
+                catch (const std::exception& e) {}
+
+                try {
+                    tripstrip = file.request_properties_from_element("tristrips",
+                                                                     {likely_face_property_name},
+                                                                     0);
+                }
+                catch (const std::exception& e) {}
             }
 
             timer.start();
             file.read(filestream);
             timer.stop();
 
-            const float parsing_time = (float) timer.get() / 1000.f;
-            std::cout << "\tparsing " << size_mb << "mb in " << parsing_time << " seconds [" << (size_mb / parsing_time) << " MBps]" << std::endl;
+            const float parsing_time = (float)timer.get() / 1000.f;
+            std::cout << "\tparsing " << size_mb
+                      << "mb in " << parsing_time << " seconds ["
+                      << (size_mb / parsing_time) << " MBps]"
+                      << std::endl;
 
-            for (auto & p : vertex_element)
-            {
+            for (auto& p : vertex_element) {
+
                 REQUIRE(p.second->count > 0);
+                for (const auto& e: file.header.elements) {
+                    for (const auto& prop: e.properties) {
+                        if (e.name == "vertex" &&
+                            prop.name == p.first)
 
-                for (const auto& e : file.get_elements())
-                {
-                    for (const auto & prop : e.properties)
-                    {
-                        if (e.name == "vertex" && prop.name == p.first)
-                        {
                             REQUIRE(e.size == p.second->count);
-                        }
                     }
                 }
             }
@@ -136,19 +138,21 @@ bool parse_ply_file(const std::string & filepath)
             timer.stop();
 
             const float transcode_time = (float)timer.get() / 1000.f;
-            std::cout << "\ttranscoded in " << transcode_time << " seconds." << std::endl;
+            std::cout << "\ttranscoded in " << transcode_time << " seconds."
+                      << std::endl;
 
             return header_result;
         }
-    } 
-    catch (const std::exception & e)
-    {
-        std::cout << "Caught Exception: " << e.what() << std::endl;
+    }
+    catch (const std::exception & e) {
+
+        std::cerr << "Caught Exception: " << e.what() << std::endl;
         REQUIRE(false);
     }
 
     return false;
 }
+
 
 ///////////////////////////
 //   Conformance Tests   //
@@ -225,19 +229,23 @@ TEST_CASE("importing conformance tests")
 // See https://github.com/ddiakopoulos/tinyply/issues/25
 TEST_CASE("requested property groups must all share the same type")
 {
-    std::ifstream filestream("../assets/validate/invalid/payload.empty.ply", std::ios::binary);
-    PlyFile file;
-    bool header_result = file.parse_header(filestream);
-    CHECK_THROWS_AS(file.request_properties_from_element("vertex", { "x", "y", "z", "r", "g", "b", "a", "uv1", "uv2" }), std::invalid_argument);
+    std::ifstream filestream("../assets/validate/invalid/payload.empty.ply",
+                             std::ios::binary);
+    File file;
+    bool header_result = file.header.parse(filestream);
+    CHECK_THROWS_AS(file.request_properties_from_element(
+        "vertex", { "x", "y", "z", "r", "g", "b", "a", "uv1", "uv2" }),
+        std::invalid_argument);
 }
 
-// An earlier (but widespread) version of Assimp had a non-conformant PLY exporter and did not prepend comments with "comment" 
+// An earlier (but widespread) version of Assimp had a non-conformant PLY
+// exporter and did not prepend comments with "comment"
 TEST_CASE("check for invalid strings in the header")
 {
     std::ifstream filestream("../assets/validate/invalid/kcrane.bob.meshconvert.com.ply", std::ios::binary);
-    PlyFile file;
-    bool header_result = file.parse_header(filestream);
-    REQUIRE_FALSE(header_result); 
+    File file;
+    bool header_result = file.header.parse(filestream);
+    REQUIRE_FALSE(header_result);
 }
 
 // Reported via https://github.com/vilya/ply-parsing-perf
@@ -246,11 +254,11 @@ TEST_CASE("check that variable length lists are unsupported (without crashing)")
     auto variable_length_test = [](const std::string & filepath)
     {
         std::ifstream filestream(filepath, std::ios::binary);
-        PlyFile file;
-        bool header_result = file.parse_header(filestream);
+        File file;
+        bool header_result = file.header.parse(filestream);
         REQUIRE(header_result);
 
-        std::shared_ptr<PlyData> faces;
+        std::shared_ptr<Data> faces;
         try { faces = file.request_properties_from_element("face", { "vertex_indices" }, 0); }
         catch (const std::exception& e) { std::cerr << "tinyply exception: " << e.what() << std::endl; }
 
@@ -264,23 +272,23 @@ TEST_CASE("check that variable length lists are unsupported (without crashing)")
 //TEST_CASE("check that int128 is an unrecognized, non-conformant datatype")
 //{
 //    std::ifstream filestream("../assets/validate/invalid/header.invalid-face-data-type-int128.ply", std::ios::binary);
-//    PlyFile file;
+//    File file;
 //    bool header_result = file.parse_header(filestream);
-//    REQUIRE_FALSE(header_result); 
+//    REQUIRE_FALSE(header_result);
 //}
 //
 //TEST_CASE("check that float16 is an unrecognized, non-conformant datatype")
 //{
 //    std::ifstream filestream("../assets/validate/invalid/header.invalid-face-property-type-float16.ply", std::ios::binary);
-//    PlyFile file;
+//    File file;
 //    bool header_result = file.parse_header(filestream);
-//    REQUIRE_FALSE(header_result); 
+//    REQUIRE_FALSE(header_result);
 //}
 //
 //TEST_CASE("check that elements must have at least one property")
 //{
 //    std::ifstream filestream("../assets/validate/invalid/header.incomplete-face-def.ply", std::ios::binary);
-//    PlyFile file;
+//    File file;
 //    bool header_result = file.parse_header(filestream);
 //    REQUIRE(header_result);
 //    for (const auto & e : file.get_elements()) REQUIRE(e.properties.size() > 0);
@@ -289,116 +297,118 @@ TEST_CASE("check that variable length lists are unsupported (without crashing)")
 // TEST_CASE("check that elements must have at least one property")
 // {
 //     std::ifstream filestream("../assets/validate/invalid/header.incomplete-face-def.ply", std::ios::binary);
-//     PlyFile file;
+//     File file;
 //     bool header_result = file.parse_header(filestream);
 //     REQUIRE(header_result);
 //     //for (const auto & e : file.get_elements()) REQUIRE(e.properties.size() > 0);
 // }
-// 
+//
 // TEST_CASE("check that element count needs to be >= 0")
 // {
 //     std::ifstream filestream("../assets/validate/invalid/header.invalid-element-count.estatica.ply", std::ios::binary);
-//     PlyFile file;
+//     File file;
 //     bool header_result = file.parse_header(filestream);
 //     REQUIRE_FALSE(header_result);
 // }
-// 
+//
 // TEST_CASE("header.invalid-face-property.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.invalid-face-property.ply");
 // }
-// 
+//
 // TEST_CASE("header.invalid-face-size-type-int128.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.invalid-face-size-type-int128.ply");
 // }
-// 
+//
 // TEST_CASE("header.invalid-ply-signature.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.invalid-ply-signature.ply");
 // }
-// 
+//
 // TEST_CASE("header.invalid-property-type.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.invalid-property-type.ply");
 // }
-// 
+//
 // TEST_CASE("header.invalid-vertex-property.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.invalid-vertex-property.ply");
 // }
-// 
+//
 // TEST_CASE("header.malformed-extra-line.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.malformed-extra-line.ply");
 // }
-// 
+//
 // TEST_CASE("header.malformed-face-before-format.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.malformed-face-before-format.ply");
 // }
-// 
+//
 // TEST_CASE("header.malformed-format.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.malformed-format.ply");
 // }
-// 
+//
 // TEST_CASE("header.malformed-missing-format.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.malformed-missing-format.ply");
 // }
-// 
+//
 // TEST_CASE("header.malformed-unexpected-property.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.malformed-unexpected-property.ply");
 // }
-// 
+//
 // TEST_CASE("header.no-elements.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.no-elements.ply");
 // }
-// 
+//
 // TEST_CASE("header.unknown-element-edge.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/header.unknown-element-edge.ply");
 // }
-// 
+//
 // TEST_CASE("payload.corrupt-extra-props.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/payload.corrupt-extra-props.ply");
 // }
-// 
+//
 // TEST_CASE("payload.empty.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/payload.empty.ply");
 // }
-// 
+//
 // TEST_CASE("payload.fail.3.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/payload.fail.3.ply");
 // }
-// 
+//
 // TEST_CASE("payload.fail.4.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/payload.fail.4.ply");
 // }
-// 
+//
 // TEST_CASE("payload.ignored-face-components.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/payload.ignored-face-components.ply");
 // }
-// 
+//
 // TEST_CASE("payload.ignored-vertex-components.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/payload.ignored-vertex-components.ply");
 // }
-// 
+//
 // TEST_CASE("payload.unaligned-memory.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/payload.unaligned-memory.ply");
 // }
-// 
+//
 // TEST_CASE("payload.unexpected-eof.ply")
 // {
 //     parse_ply_file("../assets/validate/invalid/payload.unexpected-eof.ply");
 // }
+
+}  // namespace tinyply::tests::doc
