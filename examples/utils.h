@@ -44,15 +44,16 @@ std::vector<uint8_t> read_file_binary(const std::filesystem::path& file)
 struct memory_buffer
     : public std::streambuf {
 
+    std::vector<uint8_t> b;
+    size_t size;
     char* p_start {};
     char* p_end {};
-    size_t size;
 
-    memory_buffer(char const* first_elem,
-                  const size_t size)
-        : p_start {const_cast<char*>(first_elem)}
+    memory_buffer(std::vector<uint8_t>&& bb)
+        : b {std::move(bb)}
+        , size {b.size()}
+        , p_start {reinterpret_cast<char*>(b.data())}
         , p_end {p_start + size}
-        , size {size}
     {
         setg(p_start, p_start, p_end);
     }
@@ -78,13 +79,12 @@ struct memory_buffer
     }
 };
 
-struct memory_stream
+struct BufferedStream
     : virtual memory_buffer
-    , public std::istream
-{
-    memory_stream(char const * first_elem,
-                  size_t size)
-        : memory_buffer(first_elem, size)
+    , public std::istream {
+
+    explicit BufferedStream(std::vector<uint8_t>&& b)
+        : memory_buffer {std::move(b)}
         , std::istream(static_cast<std::streambuf*>(this))
     {}
 };

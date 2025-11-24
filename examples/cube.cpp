@@ -15,7 +15,14 @@
 #include "writer.h"
 #include "utils.h"
 
+#include <cstdint>  // uint8_t, int8_t, uint16_t, int16_t, etc
+#include <cstring>  // memcopy
 #include <filesystem>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <vector>
 
 namespace tinyply::examples {
 
@@ -73,18 +80,16 @@ std::optional<T> read(const std::filesystem::path& file,
     std::cout << "..........................................................\n";
     std::cout << "Now Reading: " << file << std::endl;
 
-    std::unique_ptr<std::istream> file_stream;
-    std::vector<uint8_t> byte_buffer;
-
     try {
+        std::unique_ptr<std::istream> file_stream;
+
         // For most files < 1Gb, pre-loading the entire file upfront and
         // wrapping it into a stream is a net win for parsing speed,
         // about 40% faster.
         if (preload_into_memory) {
 
-            byte_buffer = read_file_binary(file);
-            file_stream.reset(new memory_stream((char*)byte_buffer.data(),
-                                                byte_buffer.size()));
+            std::vector<uint8_t> byte_buffer = read_file_binary(file);
+            file_stream.reset(new BufferedStream(std::move(byte_buffer)));
         }
         else
             file_stream.reset(new std::ifstream(file, std::ios::binary));
@@ -104,7 +109,7 @@ std::optional<T> read(const std::filesystem::path& file,
         file.report_structure();
 
         // Because most people have their own mesh types,
-        // tinyply treats parsed data as structured/typed byte buffers.
+        // tinyply treats parsed data as structured/typed byte buffers.à
         // See examples below on how to marry your own application-specific
         // data structures with this one.
         std::shared_ptr<FileIn::Data> vertices;
