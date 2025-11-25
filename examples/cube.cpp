@@ -1,8 +1,26 @@
-// This software is in the public domain. Where that dedication is not
-// recognized, you are granted a perpetual, irrevocable license to copy,
-// distribute, and modify this file as you see fit.
-// https://github.com/ddiakopoulos/tinyply
-// Version 2.3
+
+/*
+ * This file is derived from
+ * tinyply 2.3.4 (https://github.com/ddiakopoulos/tinyply)
+ *
+ * A zero-dependency (except the C++ STL) public domain implementation
+ * of the PLY file format. Requires C++20; errors are handled through exceptions.
+ *
+ * This software is in the public domain. Where that dedication is not
+ * recognized, you are granted a perpetual, irrevocable license to copy,
+ * distribute, and modify this file as you see fit.
+ *
+ * Authored by Dimitri Diakopoulos (http://www.dimitridiakopoulos.com)
+ * Modified by Valerii Sukhorukov (vsukhorukov@yahoo.com, https://github.com/vsukhor)
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
 
 // The purpose of this file is to demonstrate the tinyply API and provide
 // several almost-complete functions that can be copied and pasted into your
@@ -12,6 +30,7 @@
 // (e.g. float3, vec3, etc).
 
 #include "reader.h"
+#include "impl/types.h"
 #include "writer.h"
 #include "utils.h"
 
@@ -124,50 +143,63 @@ std::optional<T> read(const std::filesystem::path& file,
         // the data. For brevity of this sample, properties
         // like vertex position are hard-coded:
         try {
-            vertices = file.request_properties_from_element("vertex",
-                                                            { "x", "y", "z" });
+            vertices = file.request_properties_from_element(
+                "vertex",
+                { "x", "y", "z" }
+            );
         }
         catch (const std::exception& e) {
             std::cerr << "tinyply exception: " << e.what() << std::endl;
         }
         try {
-            normals = file.request_properties_from_element("vertex",
-                                                           {"nx", "ny", "nz"});
-        }
-        catch (const std::exception& e) {
-            std::cerr << "tinyply exception: " << e.what() << std::endl;
-        }
-
-        try {
-            colors = file.request_properties_from_element("vertex",
-                                                          {"red", "green", "blue", "alpha"});
+            normals = file.request_properties_from_element(
+                "vertex",
+                {"nx", "ny", "nz"}
+            );
         }
         catch (const std::exception& e) {
             std::cerr << "tinyply exception: " << e.what() << std::endl;
         }
 
         try {
-            colors = file.request_properties_from_element("vertex",
-                                                          { "r", "g", "b", "a" });
+            colors = file.request_properties_from_element(
+                "vertex",
+                {"red", "green", "blue", "alpha"}
+            );
         }
         catch (const std::exception& e) {
             std::cerr << "tinyply exception: " << e.what() << std::endl;
         }
 
         try {
-            texcoords = file.request_properties_from_element("vertex",
-                                                             { "u", "v" });
+            colors = file.request_properties_from_element(
+                "vertex",
+                { "r", "g", "b", "a" }
+            );
+        }
+        catch (const std::exception& e) {
+            std::cerr << "tinyply exception: " << e.what() << std::endl;
+        }
+
+        try {
+            texcoords = file.request_properties_from_element(
+                "vertex",
+                { "u", "v" }
+            );
         }
         catch (const std::exception& e) {
             std::cerr << "tinyply exception: " << e.what() << std::endl;
         }
 
         // Providing a list size hint (the last argument) is a 2x performance
-        // improvement. If you have arbitrary ply files, it is best to leave this 0.
+        // improvement. If you have arbitrary ply files, it is best
+        // to leave this 0.
         try {
-            faces = file.request_properties_from_element("face",
-                                                         {"vertex_indices"},
-                                                         3);
+            faces = file.request_properties_from_element(
+                "face",
+                {"vertex_indices"},
+                3
+            );
         }
         catch (const std::exception& e) {
             std::cerr << "tinyply exception: " << e.what() << std::endl;
@@ -177,9 +209,11 @@ std::optional<T> read(const std::filesystem::path& file,
         // know exactly how many elements are specifically in the file, which
         // is unlikely);
         try {
-            tripstrip = file.request_properties_from_element("tristrips",
-                                                             {"vertex_indices"},
-                                                             0);
+            tripstrip = file.request_properties_from_element(
+                "tristrips",
+                {"vertex_indices"},
+                0
+            );
         }
         catch (const std::exception& e) {
             std::cerr << "tinyply exception: " << e.what() << std::endl;

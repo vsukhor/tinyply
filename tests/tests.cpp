@@ -10,7 +10,7 @@
  * distribute, and modify this file as you see fit.
  *
  * Authored by Dimitri Diakopoulos (http://www.dimitridiakopoulos.com)
- * Updated by Valerii Sukhorukov (vsukhorukov@yahoo.com, https://github.com/vsukhor)
+ * Modified by Valerii Sukhorukov (vsukhorukov@yahoo.com, https://github.com/vsukhor)
  */
 
 /// Original Note from the autor: ==============================================

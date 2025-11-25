@@ -10,7 +10,15 @@
  * distribute, and modify this file as you see fit.
  *
  * Authored by Dimitri Diakopoulos (http://www.dimitridiakopoulos.com)
- * Updated by Valerii Sukhorukov (vsukhorukov@yahoo.com, https://github.com/vsukhor)
+ * Modified by Valerii Sukhorukov (vsukhorukov@yahoo.com, https://github.com/vsukhor)
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
 #ifndef TINYPLY_IMPL_TYPES_H
@@ -23,31 +31,57 @@
 #include <map>
 #include <ostream>
 #include <string_view>
+#include <tuple>
 
 
 namespace tinyply {
 namespace impl {
 
-    enum class Type: uint8_t {
 
-        INVALID,
-        INT8,
-        UINT8,
-        INT16,
-        UINT16,
-        INT32,
-        UINT32,
-        FLOAT32,
-        FLOAT64
+    using typetup = std::tuple<void,
+                               int8_t,
+                               uint8_t,
+                               int16_t,
+                               uint16_t,
+                               int32_t,
+                               uint32_t,
+                               float,
+                               double>;
+
+    // Gest index of tuple's element type.
+    // See answer by Casey (https://stackoverflow.com/questions/18063451/get-index-of-a-tuple-elements-type?rq=3)
+    template <class T, class Tuple>
+    struct Index;
+    template <class T, class... Types>
+    struct Index<T, std::tuple<T, Types...>> {
+        static const std::size_t value = 0;
+    };
+    template <class T, class U, class... Types>
+    struct Index<T, std::tuple<U, Types...>> {
+        static const std::size_t value = 1 + Index<T, std::tuple<Types...>>::value;
     };
 
+    enum class Type: uint8_t {
+
+        INVALID = Index<void, typetup>::value,
+        INT8    = Index<int8_t, typetup>::value,
+        UINT8   = Index<uint8_t, typetup>::value,
+        INT16   = Index<int16_t, typetup>::value,
+        UINT16  = Index<uint16_t, typetup>::value,
+        INT32   = Index<int32_t, typetup>::value,
+        UINT32  = Index<uint32_t, typetup>::value,
+        FLOAT32 = Index<float, typetup>::value,
+        FLOAT64 = Index<double, typetup>::value,
+    };
+
+    template<Type T>
+    using type = std::tuple_element_t<static_cast<size_t>(T), typetup>;
 
     struct Info {
 
         const Type t;
-
         const int stride;
-        std::string_view str;
+        const std::string_view str;
 
         int write_ascii(std::ostream& os,
                         const uint8_t* src) const
@@ -100,7 +134,7 @@ namespace impl {
         { Type::INVALID, Info(Type::INVALID, 0, "INVALID") }
     };
 
-    void swap_endanness(Type t, void* dst)
+    void endian_reverse(Type t, void* dst)
     {
         switch (t) {
 
