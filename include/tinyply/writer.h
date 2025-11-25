@@ -41,8 +41,6 @@ namespace tinyply {
 
     struct Writer {
 
-        template<Type T> using type = impl::type<T>;
-
         std::unique_ptr<impl::FileOut> file;
 
         Writer();

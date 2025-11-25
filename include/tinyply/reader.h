@@ -45,7 +45,6 @@ namespace tinyply {
     public:
 
         using Data = impl::Data;
-        template<Type T> using type = impl::type<T>;
 
         Reader();
 

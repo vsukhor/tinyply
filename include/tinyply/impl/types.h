@@ -150,6 +150,7 @@ namespace impl {
 }  // namespace impl
 
 using Type = impl::Type;
+template<Type T> using type = impl::type<T>;
 
 }  // namespace tinyply
 
