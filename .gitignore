@@ -12,6 +12,8 @@
 *.pch
 *.pdb
 *.log
+*.a
+*.so
 
 # Visual C++ cache files
 ipch/
