@@ -58,8 +58,3 @@ jobs:
 
     - name: Build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
-
-    - uses: actions/upload-artifact@v4
-      with:
-        name: libtinyply-${{ matrix.config.os }}.a
-        path: ${{github.workspace}}/lib/libtinyply.a
