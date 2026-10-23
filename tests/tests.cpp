@@ -1,431 +1,539 @@
 /*
- * This file is derived from
- * tinyply 2.3.4 (https://github.com/ddiakopoulos/tinyply)
- *
- * A zero-dependency (except the C++ STL) public domain implementation
- * of the PLY file format. Requires C++20; errors are handled through exceptions.
+ * Self-contained tests for tinyply: every PLY file is generated in memory or
+ * in the system temp directory, so no external assets are required.
  *
  * This software is in the public domain. Where that dedication is not
  * recognized, you are granted a perpetual, irrevocable license to copy,
  * distribute, and modify this file as you see fit.
  *
- * Authored by Dimitri Diakopoulos (http://www.dimitridiakopoulos.com)
- * Modified by Valerii Sukhorukov (vsukhorukov@yahoo.com, https://github.com/vsukhor)
+ * Authored by Valerii Sukhorukov (vsukhorukov@yahoo.com, https://github.com/vsukhor)
  */
 
-/// Original Note from the autor: ==============================================
+// The implementation is compiled in tinyply_impl.cpp. Including the headers
+// here without TINYPLY_AS_LIBRARY checks that they link from several
+// translation units.
+#include "tinyply.h"
 
-// This software is in the public domain. Where that dedication is not
-// recognized, you are granted a perpetual, irrevocable license to copy,
-// distribute, and modify this file as you see fit.
-// https://github.com/ddiakopoulos/tinyply
-
-// ~ Work in Progress ~
-// This implements a suit of file format conformance tests.
-// Running this currently requires a very large
-// folder of assets that have been sourced from a variety of internet sources,
-// transcoded or exported from known ply-compatible software including Houdini,
-// VTK, CGAL, Meshlab, Matlab, Blender, Draco, Assimp,
-// the Stanford 3D Scanning Repository, and others.
-// Because of the wide variety of sources and copyright issues,
-// these files are not re-distributed.
-
-#include "../examples/utils.h"
-#include "../tinyply/tinyply.h"
-
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include "doctest.h"
-
+#include <algorithm>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
+#include <streambuf>
 #include <string>
+#include <vector>
 
-namespace tinyply::tests::doc {
-using namespace tinyply::impl;
+namespace tinyply::tests {
+
+namespace fs = std::filesystem;
+using Data = Reader::Data;
+
+// Checks ======================================================================
+
+// Not `assert`: the checks must also run in Release builds.
+
+int failures {};
+
+void check(const bool ok,
+           const char* expr,
+           const char* file,
+           const int line)
+{
+    if (ok)
+        return;
+
+    ++failures;
+    std::cerr << file << ":" << line << ": check failed: " << expr << std::endl;
+}
+
+#define CHECK(cond) check((cond), #cond, __FILE__, __LINE__)
+
+#define CHECK_THROWS(expr, E)                                       \
+    do {                                                            \
+        bool thrown {};                                             \
+        try { expr; }                                               \
+        catch (const E&) { thrown = true; }                         \
+        check(thrown, #expr " throws " #E, __FILE__, __LINE__);     \
+    } while (false)
+
+// Helpers =====================================================================
+
+// Serializes values into a binary PLY payload in the requested byte order.
+// Like tinyply itself, assumes a little-endian host.
+struct Payload {
+
+    bool bigEndian {};
+    std::string bytes;
+
+    explicit Payload(const bool bigEndian = false)
+        : bigEndian {bigEndian}
+    {}
+
+    template<typename T>
+    Payload& put(const T v)
+    {
+        char b[sizeof(T)];
+        std::memcpy(b, &v, sizeof(T));
+        if (bigEndian)
+            std::reverse(b, b + sizeof(T));
+        bytes.append(b, sizeof(T));
+
+        return *this;
+    }
+};
+
+// A stream buffer without seek support, like a pipe.
+struct NoSeekBuf : std::streambuf {
+
+    std::string s;
+
+    explicit NoSeekBuf(std::string str)
+        : s {std::move(str)}
+    {
+        setg(s.data(), s.data(), s.data() + s.size());
+    }
+};
+
+// A file in the temp directory, removed on destruction.
+struct TempFile {
+
+    fs::path path;
+
+    explicit TempFile(const std::string& name)
+        : path {fs::temp_directory_path() / ("tinyply-test-" + name)}
+    {}
+
+    ~TempFile()
+    {
+        std::error_code ec;
+        fs::remove(path, ec);
+    }
+};
 
 template<typename T>
-void transcode_ply_file(T& file,
-                        const std::filesystem::path& filepath)
+const uint8_t* bytes_of(const std::vector<T>& v)
 {
-    auto filename = filepath.parent_path() / filepath.stem();
-    filename += "-transcode-binary.ply";
-    std::ofstream outstream_binary(filename, std::ios::binary);
-    if (outstream_binary.fail())
-        throw std::runtime_error("failed to open " + filename.string());
-    file.write(outstream_binary, true);
-
-    //std::filebuf fb_ascii;
-    //fb_ascii.open(filename + "-transcode-ascii.ply", std::ios::out);
-    //std::ostream outstream_ascii(&fb_ascii);
-    //if (outstream_ascii.fail()) throw std::runtime_error("failed to open " + filename);
-    //file.write(outstream_ascii, false);
+    return reinterpret_cast<const uint8_t*>(v.data());
 }
 
-bool parse_ply_file(const std::string& filepath)
+template<typename T>
+std::vector<T> values(const Data& d)
 {
-    manual_timer timer;
-    std::ifstream filestream(filepath, std::ios::binary);
+    std::vector<T> v(d.buffer.size_bytes() / sizeof(T));
+    std::memcpy(v.data(), d.buffer.get(), v.size() * sizeof(T));
 
-    try {
-        if (filestream.is_open()) {
-
-            impl::FileIn file;
-
-            filestream.seekg(0, std::ios::end);
-            const float size_mb = filestream.tellg() * float(1e-6);
-            filestream.seekg(0, std::ios::beg);
-
-            bool header_result = file.header.parse(filestream);
-
-            // All ply files are required to have a vertex element
-            std::unordered_map<std::string,
-                               std::shared_ptr<Data>> vertex_element;
-
-            std::cout << "testing: " << filepath
-                      << " - filetype: " << (file.header.isBinary ? "binary"
-                                                                  : "ascii")
-                      << std::endl;
-
-            REQUIRE(file.header.elements.size() > 0);
-
-            std::string likely_face_property_name;
-            // Extract a fat vertex structure (will likely include more than xyz)
-            for (const auto & e : file.header.elements)
-            {
-                if (e.name == "vertex")
-                {
-                    REQUIRE(e.properties.size() > 0);
-                    for (const auto & p : e.properties) {
-
-                        try {
-                            vertex_element[p.name] = file.request_properties_from_element(e.name, {p.name});
-                        }
-                        catch (const std::exception & e) { /**/ }
-                    }
-                }
-
-                // Heuristic...
-                if (e.name == "face")
-                    for (int i = 0; i < 1; ++i)
-                        likely_face_property_name = e.properties[i].name;
-            }
-
-            std::shared_ptr<Data> faces, tripstrip;
-
-            if (!likely_face_property_name.empty()) {
-
-                try {
-                    faces = file.request_properties_from_element("face",
-                                                                 {likely_face_property_name},
-                                                                 0);
-                }
-                catch (const std::exception& e) {}
-
-                try {
-                    tripstrip = file.request_properties_from_element("tristrips",
-                                                                     {likely_face_property_name},
-                                                                     0);
-                }
-                catch (const std::exception& e) {}
-            }
-
-            timer.start();
-            file.read(filestream);
-            timer.stop();
-
-            const float parsing_time = (float)timer.get() / 1000.f;
-            std::cout << "\tparsing " << size_mb
-                      << "mb in " << parsing_time << " seconds ["
-                      << (size_mb / parsing_time) << " MBps]"
-                      << std::endl;
-
-            for (auto& p : vertex_element) {
-
-                REQUIRE(p.second->count > 0);
-                for (const auto& e: file.header.elements) {
-                    for (const auto& prop: e.properties) {
-                        if (e.name == "vertex" &&
-                            prop.name == p.first)
-
-                            REQUIRE(e.size == p.second->count);
-                    }
-                }
-            }
-
-            timer.start();
-            transcode_ply_file(file, filepath);
-            timer.stop();
-
-            const float transcode_time = (float)timer.get() / 1000.f;
-            std::cout << "\ttranscoded in " << transcode_time << " seconds."
-                      << std::endl;
-
-            return header_result;
-        }
-    }
-    catch (const std::exception & e) {
-
-        std::cerr << "Caught Exception: " << e.what() << std::endl;
-        REQUIRE(false);
-    }
-
-    return false;
+    return v;
 }
 
+// Two vertices (x, y) and two triangles, in ASCII.
+const std::string trianglesAscii =
+    "ply\nformat ascii 1.0\n"
+    "element vertex 3\nproperty float x\nproperty float y\n"
+    "element face 2\nproperty list uchar int vertex_indices\n"
+    "end_header\n"
+    "0 0\n1 0\n0 1\n"
+    "3 0 1 2\n3 2 1 0\n";
 
-///////////////////////////
-//   Conformance Tests   //
-///////////////////////////
+// Round trips =================================================================
 
-TEST_CASE("importing conformance tests")
+void round_trip(const bool asBinary)
 {
-    manual_timer timer;
+    const std::vector<float> xyz {0, 0, 0,  1, 0, 0,  0, 1, 0,  1.5f, -2.25f, 1e6f};
+    const std::vector<uint8_t> rgb {255, 0, 0,  0, 255, 0,  0, 0, 255,  9, 9, 9};
+    const std::vector<uint32_t> tris {0, 1, 2,  1, 3, 2};
 
-    timer.start();
-    parse_ply_file("../assets/validate/valid/bunny.ply");
-    parse_ply_file("../assets/validate/valid/horse.ply");
-    parse_ply_file("../assets/validate/valid/2d.vertex.ply");
-    parse_ply_file("../assets/validate/valid/airplane.ply");
-    parse_ply_file("../assets/validate/valid/ant.ply");
-    parse_ply_file("../assets/validate/valid/armadillo.ascii.ply");
-    parse_ply_file("../assets/validate/valid/armadillo.ply");
-    parse_ply_file("../assets/validate/valid/artec.bus.ply");
-    parse_ply_file("../assets/validate/valid/artec.crocodile-statue.ply");
-    parse_ply_file("../assets/validate/valid/artec.face.ply");
-    parse_ply_file("../assets/validate/valid/artec.hand.ply");
-    parse_ply_file("../assets/validate/valid/beethoven.ply");
-    parse_ply_file("../assets/validate/valid/bird.ply");
-    parse_ply_file("../assets/validate/valid/brain.ply");
-    parse_ply_file("../assets/validate/valid/cgal.colors.ply");
-    parse_ply_file("../assets/validate/valid/cow.ply");
-    parse_ply_file("../assets/validate/valid/cube_att.ply");
-    parse_ply_file("../assets/validate/valid/dimitri-scan.ply");
-    parse_ply_file("../assets/validate/valid/draco.ascii.whitespace.ply");
-    parse_ply_file("../assets/validate/valid/draco.int_point_cloud.ply");
-    parse_ply_file("../assets/validate/valid/dragon.ply");
-    parse_ply_file("../assets/validate/valid/freedom_model.ply");
-    parse_ply_file("../assets/validate/valid/golfball.ply");
-    parse_ply_file("../assets/validate/valid/hand.ply");
-    parse_ply_file("../assets/validate/valid/happy.ply");
-    parse_ply_file("../assets/validate/valid/head1.ply");
-    parse_ply_file("../assets/validate/valid/golfball.ply");
-    parse_ply_file("../assets/validate/valid/helix.ply");
-    parse_ply_file("../assets/validate/valid/heptoroid.ply");
-    parse_ply_file("../assets/validate/valid/kcrane.csaszar.ply");
-    parse_ply_file("../assets/validate/valid/kcrane.spot.ply");
-    parse_ply_file("../assets/validate/valid/laserdesign.dragon.ply");
-    parse_ply_file("../assets/validate/valid/lion.ply");
-    parse_ply_file("../assets/validate/valid/lucy.decimated.ply");
-    parse_ply_file("../assets/validate/valid/matlab.colinear.ply");
-    parse_ply_file("../assets/validate/valid/matlab.ply");
-    parse_ply_file("../assets/validate/valid/maxplanck.ply");
-    parse_ply_file("../assets/validate/valid/nefertiti.ply");
-    parse_ply_file("../assets/validate/valid/points-only.ply");
-    parse_ply_file("../assets/validate/valid/random.obj-info.ply");
-    parse_ply_file("../assets/validate/valid/scaninabox.dwarf.ply");
-    parse_ply_file("../assets/validate/valid/shark.ply");
-    parse_ply_file("../assets/validate/valid/t3.bone.big-endian.ply");
-    parse_ply_file("../assets/validate/valid/teapot.ply");
-    parse_ply_file("../assets/validate/valid/test_cloud.ply");
-    parse_ply_file("../assets/validate/valid/tet.ascii.ply");
-    parse_ply_file("../assets/validate/valid/torus.ply");
-    parse_ply_file("../assets/validate/valid/tri_gouraud.ply");
-    parse_ply_file("../assets/validate/valid/vtk.blob.ply");
-    parse_ply_file("../assets/validate/valid/blade.ply");                      // 82mb
-    parse_ply_file("../assets/validate/valid/lucy.ply");                       // 520mb
-    parse_ply_file("../assets/validate/valid/redrocks.dronemapper.ply");       // 268mb
-    parse_ply_file("../assets/validate/valid/navvis.HQ3rdFloor.SLAM.5mm.ply"); // 1700mb
-    timer.stop();
-
-    const float conformance_time = (float)timer.get() / 1000.f;
-    std::cout << ">>> test ran in " << conformance_time << " seconds." << std::endl;
-}
-
-///////////////////
-//   Unit Tests  //
-///////////////////
-
-// See https://github.com/ddiakopoulos/tinyply/issues/25
-TEST_CASE("requested property groups must all share the same type")
-{
-    std::ifstream filestream("../assets/validate/invalid/payload.empty.ply",
-                             std::ios::binary);
-    impl::FileIn file;
-    bool header_result = file.header.parse(filestream);
-    CHECK_THROWS_AS(file.request_properties_from_element(
-        "vertex", { "x", "y", "z", "r", "g", "b", "a", "uv1", "uv2" }),
-        std::invalid_argument);
-}
-
-// An earlier (but widespread) version of Assimp had a non-conformant PLY
-// exporter and did not prepend comments with "comment"
-TEST_CASE("check for invalid strings in the header")
-{
-    std::ifstream filestream("../assets/validate/invalid/kcrane.bob.meshconvert.com.ply", std::ios::binary);
-    impl::FileIn file;
-    bool header_result = file.header.parse(filestream);
-    REQUIRE_FALSE(header_result);
-}
-
-// Reported via https://github.com/vilya/ply-parsing-perf
-TEST_CASE("check that variable length lists are unsupported (without crashing)")
-{
-    auto variable_length_test = [](const std::string & filepath)
+    TempFile f {asBinary ? "round-trip-binary.ply" : "round-trip-ascii.ply"};
     {
-        std::ifstream filestream(filepath, std::ios::binary);
-        impl::FileIn file;
-        bool header_result = file.header.parse(filestream);
-        REQUIRE(header_result);
+        Writer w;
+        w.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32,
+                                    4, bytes_of(xyz), Type::INVALID, 0);
+        w.add_properties_to_element("vertex", {"red", "green", "blue"}, Type::UINT8,
+                                    4, bytes_of(rgb), Type::INVALID, 0);
+        w.add_properties_to_element("face", {"vertex_indices"}, Type::UINT32,
+                                    2, bytes_of(tris), Type::UINT8, 3);
+        w.add_comment("round trip");
+        w.write(f.path, asBinary);
+    }
 
-        std::shared_ptr<Data> faces;
-        try { faces = file.request_properties_from_element("face", { "vertex_indices" }, 0); }
-        catch (const std::exception& e) { std::cerr << "tinyply exception: " << e.what() << std::endl; }
+    std::ifstream is(f.path, std::ios::binary);
+    Reader r;
+    CHECK(r.parse_header(is));
+    CHECK(r.is_binary() == asBinary);
+    CHECK(r.comments() == std::vector<std::string> {"round trip"});
 
-        CHECK_THROWS_AS(file.read(filestream), std::runtime_error);
-    };
+    auto v = r.request_properties_from_element("vertex", {"x", "y", "z"});
+    auto c = r.request_properties_from_element("vertex", {"red", "green", "blue"});
+    auto t = r.request_properties_from_element("face", {"vertex_indices"});
+    r.read(is);
 
-    variable_length_test("../assets/validate/valid/tet.ascii.variable-length.ply");
-    variable_length_test("../assets/validate/valid/kcrane.city.ply");
+    CHECK(v->t == Type::FLOAT32);
+    CHECK(v->count == 4);
+    CHECK(values<float>(*v) == xyz);
+    CHECK(values<uint8_t>(*c) == rgb);
+    CHECK(t->isList);
+    CHECK(t->count == 2);
+    CHECK(values<uint32_t>(*t) == tris);
 }
 
-//TEST_CASE("check that int128 is an unrecognized, non-conformant datatype")
-//{
-//    std::ifstream filestream("../assets/validate/invalid/header.invalid-face-data-type-int128.ply", std::ios::binary);
-//    File file;
-//    bool header_result = file.parse_header(filestream);
-//    REQUIRE_FALSE(header_result);
-//}
-//
-//TEST_CASE("check that float16 is an unrecognized, non-conformant datatype")
-//{
-//    std::ifstream filestream("../assets/validate/invalid/header.invalid-face-property-type-float16.ply", std::ios::binary);
-//    File file;
-//    bool header_result = file.parse_header(filestream);
-//    REQUIRE_FALSE(header_result);
-//}
-//
-//TEST_CASE("check that elements must have at least one property")
-//{
-//    std::ifstream filestream("../assets/validate/invalid/header.incomplete-face-def.ply", std::ios::binary);
-//    File file;
-//    bool header_result = file.parse_header(filestream);
-//    REQUIRE(header_result);
-//    for (const auto & e : file.get_elements()) REQUIRE(e.properties.size() > 0);
-//}
-//
-// TEST_CASE("check that elements must have at least one property")
-// {
-//     std::ifstream filestream("../assets/validate/invalid/header.incomplete-face-def.ply", std::ios::binary);
-//     File file;
-//     bool header_result = file.parse_header(filestream);
-//     REQUIRE(header_result);
-//     //for (const auto & e : file.get_elements()) REQUIRE(e.properties.size() > 0);
-// }
-//
-// TEST_CASE("check that element count needs to be >= 0")
-// {
-//     std::ifstream filestream("../assets/validate/invalid/header.invalid-element-count.estatica.ply", std::ios::binary);
-//     File file;
-//     bool header_result = file.parse_header(filestream);
-//     REQUIRE_FALSE(header_result);
-// }
-//
-// TEST_CASE("header.invalid-face-property.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.invalid-face-property.ply");
-// }
-//
-// TEST_CASE("header.invalid-face-size-type-int128.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.invalid-face-size-type-int128.ply");
-// }
-//
-// TEST_CASE("header.invalid-ply-signature.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.invalid-ply-signature.ply");
-// }
-//
-// TEST_CASE("header.invalid-property-type.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.invalid-property-type.ply");
-// }
-//
-// TEST_CASE("header.invalid-vertex-property.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.invalid-vertex-property.ply");
-// }
-//
-// TEST_CASE("header.malformed-extra-line.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.malformed-extra-line.ply");
-// }
-//
-// TEST_CASE("header.malformed-face-before-format.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.malformed-face-before-format.ply");
-// }
-//
-// TEST_CASE("header.malformed-format.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.malformed-format.ply");
-// }
-//
-// TEST_CASE("header.malformed-missing-format.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.malformed-missing-format.ply");
-// }
-//
-// TEST_CASE("header.malformed-unexpected-property.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.malformed-unexpected-property.ply");
-// }
-//
-// TEST_CASE("header.no-elements.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.no-elements.ply");
-// }
-//
-// TEST_CASE("header.unknown-element-edge.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/header.unknown-element-edge.ply");
-// }
-//
-// TEST_CASE("payload.corrupt-extra-props.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/payload.corrupt-extra-props.ply");
-// }
-//
-// TEST_CASE("payload.empty.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/payload.empty.ply");
-// }
-//
-// TEST_CASE("payload.fail.3.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/payload.fail.3.ply");
-// }
-//
-// TEST_CASE("payload.fail.4.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/payload.fail.4.ply");
-// }
-//
-// TEST_CASE("payload.ignored-face-components.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/payload.ignored-face-components.ply");
-// }
-//
-// TEST_CASE("payload.ignored-vertex-components.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/payload.ignored-vertex-components.ply");
-// }
-//
-// TEST_CASE("payload.unaligned-memory.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/payload.unaligned-memory.ply");
-// }
-//
-// TEST_CASE("payload.unexpected-eof.ply")
-// {
-//     parse_ply_file("../assets/validate/invalid/payload.unexpected-eof.ply");
-// }
+void ascii_round_trip()  { round_trip(false); }
+void binary_round_trip() { round_trip(true); }
 
-}  // namespace tinyply::tests::doc
+// Writer ======================================================================
+
+void writer_add_element_first()
+{
+    const std::vector<float> xyz {1, 2, 3,  4, 5, 6};
+
+    TempFile f {"add-element-first.ply"};
+    {
+        Writer w;
+        w.add_element("vertex");
+        w.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32,
+                                    2, bytes_of(xyz), Type::INVALID, 0);
+        w.write(f.path, false);
+    }
+
+    std::ifstream is(f.path, std::ios::binary);
+    Reader r;
+    r.parse_header(is);
+    auto v = r.request_properties_from_element("vertex", {"x", "y", "z"});
+    r.read(is);
+
+    CHECK(v->count == 2);
+    CHECK(values<float>(*v) == xyz);
+}
+
+void writer_rejects_bad_properties()
+{
+    const std::vector<float> xyz {1, 2, 3,  4, 5, 6};
+
+    TempFile f {"rejects-bad-properties.ply"};
+    {
+        Writer w;
+        w.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32,
+                                    2, bytes_of(xyz), Type::INVALID, 0);
+
+        CHECK_THROWS(w.add_properties_to_element("vertex", {"w"}, Type::FLOAT32,
+                                                 3, bytes_of(xyz), Type::INVALID, 0),
+                     std::invalid_argument);
+        CHECK_THROWS(w.add_properties_to_element("vertex", {"nx", "x"}, Type::FLOAT32,
+                                                 2, bytes_of(xyz), Type::INVALID, 0),
+                     std::invalid_argument);
+        CHECK_THROWS(w.add_properties_to_element("vertex", {"u", "u"}, Type::FLOAT32,
+                                                 2, bytes_of(xyz), Type::INVALID, 0),
+                     std::invalid_argument);
+        w.write(f.path, true);
+    }
+
+    // The rejected calls must not leave partially added properties behind.
+    std::ifstream is(f.path, std::ios::binary);
+    Reader r;
+    r.parse_header(is);
+    const auto elements = r.get_elements();
+    CHECK(elements.size() == 1);
+    CHECK(elements[0].properties.size() == 3);
+    CHECK(!elements[0].contains("nx"));
+}
+
+// Header ======================================================================
+
+void header_structure()
+{
+    std::istringstream is(trianglesAscii);
+    Reader r;
+    CHECK(r.parse_header(is));
+    CHECK(!r.is_binary());
+
+    const auto elements = r.get_elements();
+    CHECK(elements.size() == 2);
+    CHECK(elements[0].name == "vertex");
+    CHECK(elements[0].size == 3);
+    CHECK(elements[0].contains("y"));
+    CHECK(elements[0].find_property("y") == 1);
+    CHECK(!elements[0].contains("z"));
+    CHECK(elements[1].properties[0].is_list());
+    CHECK(elements[1].properties[0].listType == Type::UINT8);
+    CHECK(elements[1].properties[0].scalarType == Type::INT32);
+}
+
+void header_unknown_field()
+{
+    std::istringstream is("ply\nformat ascii 1.0\nbogus line\n"
+                          "element vertex 0\nproperty float x\nend_header\n");
+    Reader r;
+    CHECK(!r.parse_header(is));
+}
+
+void header_invalid_list_count_type()
+{
+    for (const std::string format: {"ascii", "binary_little_endian"})
+        for (const std::string countType: {"float", "double", "int64"}) {
+
+            std::istringstream is("ply\nformat " + format + " 1.0\n"
+                                  "element face 1\n"
+                                  "property list " + countType + " int idx\n"
+                                  "end_header\n");
+            Reader r;
+            CHECK_THROWS(r.parse_header(is), std::runtime_error);
+        }
+}
+
+// Reading =====================================================================
+
+void element_property_name_collision()
+{
+    // "ab" + "c" and "a" + "bc" must remain distinct requests.
+    std::istringstream is("ply\nformat ascii 1.0\n"
+                          "element ab 1\nproperty int c\n"
+                          "element a 1\nproperty float bc\n"
+                          "end_header\n5\n2.5\n");
+    Reader r;
+    r.parse_header(is);
+    auto abc = r.request_properties_from_element("ab", {"c"});
+    auto abc2 = r.request_properties_from_element("a", {"bc"});
+    r.read(is);
+
+    CHECK(values<int32_t>(*abc) == std::vector<int32_t> {5});
+    CHECK(values<float>(*abc2) == std::vector<float> {2.5f});
+}
+
+void list_size_hint_single_pass()
+{
+    // With a hint, the file is read in one pass, so no seeking is needed.
+    NoSeekBuf buf {trianglesAscii};
+    std::istream is(&buf);
+    Reader r;
+    r.parse_header(is);
+    auto t = r.request_properties_from_element("face", {"vertex_indices"}, 3);
+    r.read(is);
+
+    CHECK(values<int32_t>(*t) == (std::vector<int32_t> {0, 1, 2, 2, 1, 0}));
+}
+
+void two_pass_needs_seekable_stream()
+{
+    NoSeekBuf buf {trianglesAscii};
+    std::istream is(&buf);
+    Reader r;
+    r.parse_header(is);
+    r.request_properties_from_element("face", {"vertex_indices"});
+
+    CHECK_THROWS(r.read(is), std::runtime_error);
+}
+
+void mixed_list_count_widths(const bool bigEndian)
+{
+    // A uint32 count of 258 is followed by uchar counts: no stale upper bytes
+    // may leak into the narrower counts. Also checks big-endian scalars.
+    std::string header = std::string("ply\nformat binary_") +
+                         (bigEndian ? "big" : "little") + "_endian 1.0\n"
+                         "element a 1\nproperty list uint int p\n"
+                         "element f 2\nproperty list uchar ushort q\n"
+                         "property float w\n"
+                         "end_header\n";
+
+    Payload p {bigEndian};
+    p.put<uint32_t>(258);
+    for (int32_t i {}; i < 258; ++i)
+        p.put(i);
+    for (uint16_t k {}; k < 2; ++k)
+        p.put<uint8_t>(2).put<uint16_t>(10 + k).put<uint16_t>(20 + k).put(0.5f + k);
+
+    std::istringstream is(header + p.bytes);
+    Reader r;
+    r.parse_header(is);
+    auto q = r.request_properties_from_element("f", {"q"});
+    auto w = r.request_properties_from_element("f", {"w"});
+    r.read(is);
+
+    CHECK(values<uint16_t>(*q) == (std::vector<uint16_t> {10, 20, 11, 21}));
+    CHECK(values<float>(*w) == (std::vector<float> {0.5f, 1.5f}));
+}
+
+void mixed_list_count_widths_le() { mixed_list_count_widths(false); }
+void mixed_list_count_widths_be() { mixed_list_count_widths(true); }
+
+void mixed_list_count_widths_ascii()
+{
+    std::string text = "ply\nformat ascii 1.0\n"
+                       "element a 1\nproperty list uint int p\n"
+                       "element f 1\nproperty list uchar int q\n"
+                       "end_header\n258";
+    for (int i {}; i < 258; ++i)
+        text += " 1";
+    text += "\n3 7 8 9\n";
+
+    std::istringstream is(text);
+    Reader r;
+    r.parse_header(is);
+    auto q = r.request_properties_from_element("f", {"q"});
+    r.read(is);
+
+    CHECK(values<int32_t>(*q) == (std::vector<int32_t> {7, 8, 9}));
+}
+
+void skipped_variable_length_list()
+{
+    // Mixed triangles and quads, but only the scalar after them is requested.
+    std::istringstream is("ply\nformat ascii 1.0\n"
+                          "element face 2\n"
+                          "property list uchar int vertex_indices\n"
+                          "property uchar red\n"
+                          "end_header\n"
+                          "3 0 1 2 7\n4 0 1 2 3 8\n");
+    Reader r;
+    r.parse_header(is);
+    auto red = r.request_properties_from_element("face", {"red"});
+    r.read(is);
+
+    CHECK(values<uint8_t>(*red) == (std::vector<uint8_t> {7, 8}));
+}
+
+void requested_variable_length_list()
+{
+    std::istringstream is("ply\nformat ascii 1.0\n"
+                          "element face 2\n"
+                          "property list uchar int vertex_indices\n"
+                          "end_header\n"
+                          "3 0 1 2\n4 0 1 2 3\n");
+    Reader r;
+    r.parse_header(is);
+    r.request_properties_from_element("face", {"vertex_indices"});
+
+    CHECK_THROWS(r.read(is), std::runtime_error);
+}
+
+// Malformed input =============================================================
+
+void truncated_binary()
+{
+    Payload p;
+    p.put(1.f).put(2.f);
+
+    std::istringstream is("ply\nformat binary_little_endian 1.0\n"
+                          "element vertex 1000\nproperty float x\n"
+                          "end_header\n" + p.bytes);
+    Reader r;
+    r.parse_header(is);
+    r.request_properties_from_element("vertex", {"x"});
+
+    CHECK_THROWS(r.read(is), std::runtime_error);
+}
+
+void truncated_binary_list()
+{
+    Payload p;
+    p.put<uint8_t>(3).put<int32_t>(0);
+
+    std::istringstream is("ply\nformat binary_little_endian 1.0\n"
+                          "element face 1\n"
+                          "property list uchar int vertex_indices\n"
+                          "end_header\n" + p.bytes);
+    Reader r;
+    r.parse_header(is);
+    r.request_properties_from_element("face", {"vertex_indices"}, 3);
+
+    CHECK_THROWS(r.read(is), std::runtime_error);
+}
+
+void truncated_ascii()
+{
+    std::istringstream is("ply\nformat ascii 1.0\n"
+                          "element vertex 3\nproperty float x\n"
+                          "end_header\n1 2\n");
+    Reader r;
+    r.parse_header(is);
+    r.request_properties_from_element("vertex", {"x"});
+
+    CHECK_THROWS(r.read(is), std::runtime_error);
+}
+
+void negative_list_count()
+{
+    {
+        std::istringstream is("ply\nformat ascii 1.0\n"
+                              "element face 1\nproperty list char int q\n"
+                              "end_header\n-1 3\n");
+        Reader r;
+        r.parse_header(is);
+        r.request_properties_from_element("face", {"q"});
+
+        CHECK_THROWS(r.read(is), std::runtime_error);
+    }
+    {
+        Payload p;
+        p.put<int8_t>(-1).put<int32_t>(3);
+
+        std::istringstream is("ply\nformat binary_little_endian 1.0\n"
+                              "element face 1\nproperty list char int q\n"
+                              "end_header\n" + p.bytes);
+        Reader r;
+        r.parse_header(is);
+        r.request_properties_from_element("face", {"q"});
+
+        CHECK_THROWS(r.read(is), std::runtime_error);
+    }
+}
+
+// Runner ======================================================================
+
+struct Test {
+
+    const char* name;
+    void (*run)();
+};
+
+const Test all[] {
+    {"ascii_round_trip",                ascii_round_trip},
+    {"binary_round_trip",               binary_round_trip},
+    {"writer_add_element_first",        writer_add_element_first},
+    {"writer_rejects_bad_properties",   writer_rejects_bad_properties},
+    {"header_structure",                header_structure},
+    {"header_unknown_field",            header_unknown_field},
+    {"header_invalid_list_count_type",  header_invalid_list_count_type},
+    {"element_property_name_collision", element_property_name_collision},
+    {"list_size_hint_single_pass",      list_size_hint_single_pass},
+    {"two_pass_needs_seekable_stream",  two_pass_needs_seekable_stream},
+    {"mixed_list_count_widths_le",      mixed_list_count_widths_le},
+    {"mixed_list_count_widths_be",      mixed_list_count_widths_be},
+    {"mixed_list_count_widths_ascii",   mixed_list_count_widths_ascii},
+    {"skipped_variable_length_list",    skipped_variable_length_list},
+    {"requested_variable_length_list",  requested_variable_length_list},
+    {"truncated_binary",                truncated_binary},
+    {"truncated_binary_list",           truncated_binary_list},
+    {"truncated_ascii",                 truncated_ascii},
+    {"negative_list_count",             negative_list_count},
+};
+
+}  // namespace tinyply::tests
+
+int main()
+{
+    using namespace tinyply::tests;
+
+    int failed {};
+    for (const auto& [name, run]: all) {
+
+        const int before = failures;
+        try {
+            run();
+        }
+        catch (const std::exception& e) {
+            ++failures;
+            std::cerr << name << ": unexpected exception: " << e.what() << std::endl;
+        }
+
+        const bool ok = failures == before;
+        failed += !ok;
+        std::cout << (ok ? "[ OK ] " : "[FAIL] ") << name << std::endl;
+    }
+
+    std::cout << std::size(all) - failed << "/" << std::size(all)
+              << " tests passed" << std::endl;
+
+    return failed ? EXIT_FAILURE : EXIT_SUCCESS;
+}
