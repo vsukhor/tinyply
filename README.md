@@ -1,31 +1,105 @@
 # tinyply
+
 ![build](https://github.com/vsukhor/tinyply/actions/workflows/cmake.yml/badge.svg)
-[![License is Unlicense](http://img.shields.io/badge/license-Unlicense-blue.svg?style=flat)](http://unlicense.org/)
+[![License: public domain](https://img.shields.io/badge/license-public%20domain-blue.svg?style=flat)](LICENSE)
 
-A zero-dependency (except the C++ STL) __public domain__ implementation of the PLY file format. It is convenient for import/export of geometry or topology data like graphs, meshes, polymer structures, etc. This repo is a refactores version derived from C++ [implementation](https://github.com/ddiakopoulos/tinyply) by [Dimitri Diakopoulos](http://www.dimitridiakopoulos.com). An excellent overview and the definition of the PLY format is available [here](http://paulbourke.net/dataformats/ply/) along with its reference implementation in C. PLY is often used in the computer vision and graphics communities for its relative simplicity, ability to support arbitrary mesh attributes, and binary modes. Famously, PLY is used to distribute 3D models in the [Stanford 3D Scanning Repository](http://graphics.stanford.edu/data/3Dscanrep/), including the bunny.
+A zero-dependency (except the C++ standard library), **public domain** C++20 implementation of the PLY file format. It is convenient for importing and exporting geometry or topology data such as meshes, graphs and polymer structures.
 
-This version of the library uses elements of C++20 and so requires a relatively recent compiler (e.g. GCC 14 is sufficient). _tinyply_ supports exporting and importing PLY files in both binary and ascii formats. It may be used for filesizes >= 4gb and can read big-endian binary files (but not write them).
+This repository is a refactored version of Dimitri Diakopoulos's [tinyply](https://github.com/ddiakopoulos/tinyply) 2.3.4.
+
+PLY is widely used in computer vision and graphics for its simplicity, its support for arbitrary per-element attributes, and its binary modes. It is, for example, the format of the [Stanford 3D Scanning Repository](https://graphics.stanford.edu/data/3Dscanrep/), home of the Stanford bunny. The current version is made for my personal use, as e.g. it is the default io lib of [graffine](https://github.com/vsukhor/graffine). Paul Bourke's [PLY format description](https://paulbourke.net/dataformats/ply/) covers the format in detail and provides its reference implementation in C.
+
+## Features
+
+- Reads and writes both ASCII and binary PLY files.
+- Reads big-endian binary files; writes little-endian only.
+- Handles files larger than 4 GB.
+- Reports errors, including malformed or truncated input, through exceptions.
+
+## Requirements
+
+- A C++20 compiler (tested with GCC 14).
+- CMake 3.28 or later, to build the library and the example.
+
+## Building
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+This builds the static library and the example program. Pass `-DSHARED_LIB=ON` for a shared library, or `-DLIB=OFF` to skip the library. After building, the library is copied to `lib/` and the example to `examples/bin/` in the source tree.
 
 ## Usage
 
-_tinyply_ can be used both as a header-only and as a precompiled library.
-Most conveniently, the switch between the two is done by defining TINYPLY_AS_LIBRARY.
+The headers include each other as `"impl/..."`, so add `include/tinyply` (not `include/`) to your include path.
 
-If on the ohter hand you prefer to use the headers alone, you may just include either 'tinyply.h' or each of 'reader.h' or 'writer.h'
-directly into your project.
+The implementation is compiled only where `TINYPLY_AS_LIBRARY` is defined. There are two ways to use it:
 
-## Getting Started
+- **Header-only:** in exactly one `.cpp` file, `#define TINYPLY_AS_LIBRARY` before including `tinyply.h`. Include it without the macro everywhere else.
+- **Precompiled library:** link against `libtinyply` (built from `source/tinyply.cpp`) and include the headers without defining the macro.
 
-The project comes with a simple example program demonstrating a circular write / read and all of the major API functionality.
+Include `tinyply.h` for both reading and writing, or only `reader.h` or `writer.h`.
+
+```cpp
+#define TINYPLY_AS_LIBRARY  // header-only use: in exactly one .cpp file
+#include "tinyply.h"
+
+#include <array>
+#include <cstring>
+#include <fstream>
+#include <vector>
+
+// Write
+std::vector<std::array<float, 3>> vertices {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+std::vector<std::array<uint32_t, 3>> triangles {{0, 1, 2}};
+
+tinyply::Writer out;
+out.add_properties_to_element("vertex", {"x", "y", "z"},
+                              tinyply::Type::FLOAT32, vertices.size(),
+                              reinterpret_cast<const uint8_t*>(vertices.data()),
+                              tinyply::Type::INVALID, 0);    // not a list
+out.add_properties_to_element("face", {"vertex_indices"},
+                              tinyply::Type::UINT32, triangles.size(),
+                              reinterpret_cast<const uint8_t*>(triangles.data()),
+                              tinyply::Type::UINT8, 3);      // list: uchar count, 3 items
+out.write("triangle.ply", true);                             // true: binary, false: ASCII
+
+// Read
+std::ifstream is("triangle.ply", std::ios::binary);
+tinyply::Reader in;
+in.parse_header(is);
+auto xyz   = in.request_properties_from_element("vertex", {"x", "y", "z"});
+auto faces = in.request_properties_from_element("face", {"vertex_indices"});
+in.read(is);
+
+// Properties requested together share one interleaved buffer: x0 y0 z0 x1 ...
+std::vector<std::array<float, 3>> loaded(xyz->count);
+std::memcpy(loaded.data(), xyz->buffer.get(), xyz->buffer.size_bytes());
+```
+
+Notes:
+
+- The writer stores pointers to your data without copying it, so the data must stay alive until `write()` is called.
+- Properties requested together must share the same scalar type. Their values are interleaved in the order they appear in the file, not the order requested.
+- Without a list size hint (the optional last argument of `request_properties_from_element`), `read()` parses the file twice and needs a seekable stream. Passing the known list length, e.g. `3` for triangle meshes, makes it a single pass.
+- `Reader::get_elements()` lists the elements and properties in the header, so you can choose what to request at run time.
+
+## Example
+
+[examples/cube.cpp](examples/cube.cpp) writes a cube mesh to ASCII, reads it back, writes it as binary and reads it again. It demonstrates all of the major API functionality, including converting the read buffers into your own types. Run it from the directory where the `example_cube*.ply` output files should go:
+
+```sh
+examples/bin/cube
+```
+
+## Limitations
+
+- Lists must have the same length in every record of an element, so meshes that mix triangles and quads cannot be read. Such lists can still be skipped by not requesting them.
+- The writer outputs fixed-length lists only.
+- 64-bit integer property types are not supported.
+- Little-endian hosts only.
 
 ## License
 
-This software is in the public domain. Where that dedication is not recognized, you are granted a perpetual, irrevocable license to copy, distribute, and modify this file as you see fit. If these terms are not suitable to your organization, you may choose to license it under the terms of the 2-clause simplified BSD.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
-WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR
-ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+This software is in the public domain, with the option of the 2-clause BSD license where public domain is not recognized or not suitable. See [LICENSE](LICENSE) for the full terms.
