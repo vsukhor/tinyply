@@ -49,7 +49,10 @@ struct FileOut {
     void write(const std::filesystem::path& p,
                bool asBinary);
 
-    constexpr Element& add_element(const std::string& elementName) noexcept;
+    constexpr Element& add_element(const std::string& elementName)
+    {
+        return header.elements.emplace_back(elementName);
+    }
 
     void add_properties_to_element(
         Element& element,
@@ -71,8 +74,8 @@ struct FileOut {
         const size_t listCount
     );
 
-    void write_ascii(std::ostream& os) noexcept;
-    void write_binary(std::ostream& os) noexcept;
+    void write_ascii(std::ostream& os);
+    void write_binary(std::ostream& os);
 
     void write_scalar_ascii(Type t,
                             std::ostream& os,
@@ -92,12 +95,6 @@ struct FileOut {
 
 namespace tinyply::impl {
 
-constexpr Element& FileOut::
-add_element(const std::string& elName) noexcept
-{
-    return header.elements.emplace_back(elName);
-}
-
 void FileOut::
 add_properties_to_element(Element& element,
                           const std::vector<std::string>& propertyKeys,
@@ -107,13 +104,25 @@ add_properties_to_element(Element& element,
                           const Type listType,
                           const size_t listCount)
 {
+    // An element created empty (e.g. via `add_element`) takes its record
+    // count from the first property group added to it.
+    if (element.size == 0)
+        element.size = count;
+    else if (element.size != count)
+        throw std::invalid_argument(
+            "element '" + element.name + "' has " +
+            std::to_string(element.size) + " records, but " +
+            std::to_string(count) + " were given"
+        );
+
+    // Throws on duplicates before anything is registered in `userData`.
+    element.create_properties(propertyKeys, type, listType, listCount);
+
     ParsingHelper helper;
     helper.data = std::make_shared<Data>(type, Buffer(data), count, false);
     helper.cursor = std::make_shared<DataCursor>();
     for (auto& key: propertyKeys)
-        header.userData.insert(element.name, key, std::move(helper));
-
-    element.create_properties(propertyKeys, type, listType, listCount);
+        header.userData.insert(element.name, key, helper);
 }
 
 void FileOut::
@@ -125,16 +134,12 @@ add_properties_to_element(const std::string& elementKey,
                           const Type listType,
                           const size_t listCount)
 {
-    ParsingHelper helper;
-    helper.data = std::make_shared<Data>(type, Buffer(data), count, false);
-    helper.cursor = std::make_shared<DataCursor>();
-    for (auto& key: propertyKeys)
-        header.userData.insert(elementKey, key, std::move(helper));
-
     auto e = header.find_element(elementKey);
     if (!e)
         e = &header.elements.emplace_back(elementKey, count);
-    e->create_properties(propertyKeys, type, listType, listCount);
+
+    add_properties_to_element(*e, propertyKeys, type, count, data,
+                              listType, listCount);
 }
 
 
@@ -176,8 +181,8 @@ void FileOut::
 write(const std::filesystem::path& p,
       const bool asBinary)
 {
-    const auto a = asBinary ? std::ios::out
-                            : std::ios::out | std::ios::binary;
+    const auto a = asBinary ? std::ios::out | std::ios::binary
+                            : std::ios::out;
     std::ofstream ost(p, a);
     if (ost.fail())
         throw std::runtime_error("failed to open " + p.string());
@@ -188,7 +193,7 @@ write(const std::filesystem::path& p,
 }
 
 void FileOut::
-write_binary(std::ostream& os) noexcept
+write_binary(std::ostream& os)
 {
     header.isBinary = true;
     header.write(os);
@@ -239,7 +244,7 @@ write_binary(std::ostream& os) noexcept
 }
 
 void FileOut::
-write_ascii(std::ostream& os) noexcept
+write_ascii(std::ostream& os)
 {
     header.write(os);
 
