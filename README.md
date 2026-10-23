@@ -18,7 +18,7 @@ PLY is widely used in computer vision and graphics for its simplicity, its suppo
 
 ## Requirements
 
-- A C++20 compiler (tested with GCC 14).
+- A C++20 compiler (tested with GCC-14, GCC-16).
 - CMake 3.28 or later, to build the library and the example.
 
 ## Building
@@ -29,6 +29,14 @@ cmake --build build
 ```
 
 This builds the static library and the example program. Pass `-DSHARED_LIB=ON` for a shared library, or `-DLIB=OFF` to skip the library. After building, the library is copied to `lib/` and the example to `examples/bin/` in the source tree.
+
+To build and run the tests, which need no external files:
+
+```sh
+cmake -S . -B build -DBUILD_TESTS=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
 
 ## Usage
 
