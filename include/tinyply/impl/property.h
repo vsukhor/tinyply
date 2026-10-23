@@ -29,6 +29,7 @@
 #include <cassert>
 #include <iostream>
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -67,7 +68,19 @@ namespace tinyply::impl {
 
         constexpr Type type_from_string(
             const std::string_view t
-        ) const noexcept;
+        ) const noexcept
+        {
+            if      (t == "int8" || t == "char")      return Type::INT8;
+            else if (t == "uint8" || t == "uchar")    return Type::UINT8;
+            else if (t == "int16" || t == "short")    return Type::INT16;
+            else if (t == "uint16" || t == "ushort")  return Type::UINT16;
+            else if (t == "int32" || t == "int")      return Type::INT32;
+            else if (t == "uint32" || t == "uint")    return Type::UINT32;
+            else if (t == "float32" || t == "float")  return Type::FLOAT32;
+            else if (t == "float64" || t == "double") return Type::FLOAT64;
+
+            return Type::INVALID;
+        }
 
         constexpr bool is_list() const noexcept
         {
@@ -95,25 +108,17 @@ Property(std::istream& is)
         std::string countType;
         is >> countType >> type;
         listType = type_from_string(countType);
-        assert(is_list());
+
+        // List counts must be integers that fit the uint32_t list size.
+        if (listType == Type::INVALID ||
+            listType == Type::FLOAT32 ||
+            listType == Type::FLOAT64)
+            throw std::runtime_error(
+                "invalid list count type '" + countType + "'"
+            );
     }
     scalarType = type_from_string(type);
     is >> name;
-}
-
-constexpr Type Property::
-type_from_string(const std::string_view t) const noexcept
-{
-    if      (t == "int8" || t == "char")      return Type::INT8;
-    else if (t == "uint8" || t == "uchar")    return Type::UINT8;
-    else if (t == "int16" || t == "short")    return Type::INT16;
-    else if (t == "uint16" || t == "ushort")  return Type::UINT16;
-    else if (t == "int32" || t == "int")      return Type::INT32;
-    else if (t == "uint32" || t == "uint")    return Type::UINT32;
-    else if (t == "float32" || t == "float")  return Type::FLOAT32;
-    else if (t == "float64" || t == "double") return Type::FLOAT64;
-
-    return Type::INVALID;
 }
 
 void Property::
