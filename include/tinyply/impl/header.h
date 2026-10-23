@@ -57,7 +57,15 @@ namespace tinyply::impl {
         std::vector<std::string> objInfo;
 
         std::vector<std::vector<PropertyLookup>> make_property_lookup_table();
-        constexpr Element* find_element(std::string_view key) noexcept;
+        constexpr Element* find_element(std::string_view key) noexcept
+        {
+            for (auto& e: elements)
+                if (e.name == key)
+
+                    return &e;
+
+            return nullptr;
+        }
 
         bool parse(std::istream& is);
         void read_format(std::istream& is);
@@ -67,7 +75,7 @@ namespace tinyply::impl {
                        std::vector<std::string>& place,
                        int erase = 0);
 
-        void write(std::ostream& os) noexcept;
+        void write(std::ostream& os);
 
         void report() const noexcept;
     };
@@ -114,19 +122,6 @@ make_property_lookup_table()
 
     return element_property_lookup;
 }
-
-constexpr
-Element* Header::
-find_element(std::string_view key) noexcept
-{
-    for (auto& e: elements)
-        if (e.name == key)
-
-            return &e;
-
-    return nullptr;
-}
-
 
 bool Header::
 parse(std::istream& is)
@@ -195,7 +190,7 @@ read_property(std::istream& is)
 }
 
 void Header::
-write(std::ostream& os) noexcept
+write(std::ostream& os)
 {
     const std::locale& fixLoc = std::locale("C");
     os.imbue(fixLoc);

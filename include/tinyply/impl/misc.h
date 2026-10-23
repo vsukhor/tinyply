@@ -125,21 +125,6 @@ void endian_swap_buffer(
     }
 }
 
-// Hash ========================================================================
-
-uint32_t hash_fnv1a(const std::string& str) noexcept
-{
-    static constexpr uint32_t fnv1aBase32 {0x811C9DC5u};
-    static constexpr uint32_t fnv1aPrime32 {0x01000193u};
-
-    auto result = fnv1aBase32;
-    for (const auto& c: str) {
-        result ^= static_cast<uint32_t>(c);
-        result *= fnv1aPrime32;
-    }
-    return result;
-}
-
 // ascii =======================================================================
 
 template<typename T>
