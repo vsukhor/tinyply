@@ -29,10 +29,11 @@
 #include "impl/property.h"
 
 #include <cstdint>  // uint8_t, int8_t, uint16_t, int16_t, etc
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
+#include <utility>
 
 namespace tinyply::impl {
 
@@ -46,23 +47,26 @@ namespace tinyply::impl {
 
     struct UserData {
 
-        using Map = std::unordered_map<uint32_t, const ParsingHelper>;
+        // Keyed by (element name, property name). Node-based, so pointers
+        // to the stored helpers stay valid as further entries are inserted.
+        using Key = std::pair<std::string, std::string>;
+        using Map = std::map<Key, const ParsingHelper>;
 
         Map dataMap;
 
         void  insert(const Element& element,
                      const Property& property,
-                     const ParsingHelper&& helper)
+                     const ParsingHelper& helper)
         {
-            insert(element.name, property.name, std::move(helper));
+            insert(element.name, property.name, helper);
         }
 
         void  insert(const std::string& elementName,
                      const std::string& propertyName,
-                     const ParsingHelper&& helper)
+                     const ParsingHelper& helper)
         {
-            auto hash = hash_fnv1a(elementName + propertyName);
-            auto result = dataMap.insert(Map::value_type{hash, std::move(helper)});
+            auto result = dataMap.try_emplace(Key{elementName, propertyName},
+                                              helper);
 
             if (result.second == false)
                 throw std::invalid_argument(
@@ -74,8 +78,7 @@ namespace tinyply::impl {
         ParsingHelper const* find(const Element& element,
                                   const Property& property) const noexcept
         {
-            auto hash = hash_fnv1a(element.name + property.name);
-            const auto it = dataMap.find(hash);
+            const auto it = dataMap.find(Key{element.name, property.name});
             return it == dataMap.end() ? nullptr
                                        : &(it->second);
         }
