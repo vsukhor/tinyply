@@ -36,6 +36,8 @@
 #include <iostream>
 #include <memory>
 #include <set>
+#include <stdexcept>
+#include <type_traits>
 
 namespace tinyply::impl {
 
@@ -76,6 +78,17 @@ struct FileIn {
         size_t& destOffset,
         size_t destSize,
         std::istream& is
+    );
+
+    uint32_t read_list_size(
+        Type t,
+        const size_t stride,
+        std::istream& is
+    );
+
+    static void check_read(
+        const std::istream& is,
+        size_t expected
     );
 
     void parse_data(std::istream& is,
@@ -170,7 +183,7 @@ request_properties_from_element(const Element& element,
             const Property& property = *element.get_property(key);
             helper.data->t = property.scalarType;
             helper.data->isList = property.is_list();
-            header.userData.insert(element, property, std::move(helper));
+            header.userData.insert(element, property, helper);
         }
 
     return data;
@@ -193,40 +206,22 @@ parse_data(std::istream& is,
                          std::istream& is)> skip;
 
     const auto start = is.tellg();
+    if (firstPass && start < 0)
+        throw std::runtime_error(
+            "reading without a list size hint requires a seekable stream"
+        );
 
     uint32_t listSize {};
-    size_t dummyCount {};
     std::string skip_ascii_buffer;
-
-    // Special case mirroring read_property_binary but for list types; this
-    // has an additional big endian check to flip the data in place immediately
-    // after reading. We do this as a performance optimization; endian flipping
-    // is done on regular properties as a post-process after reading (also for
-    // optimization) but we need the correct little-endian list count as we
-    // read the file.
-    auto read_list_binary = [this](const Type& t,
-                                   void* dst,
-                                   size_t& destOffset,
-                                   const size_t stride,
-                                   std::istream& _is) noexcept
-    {
-        destOffset += stride;
-        _is.read((char*)dst, stride);
-
-        if (header.isBigEndian)
-            endian_reverse(t, dst);
-
-        return stride;
-    };
 
     if (header.isBinary) {
 
-        read = [this, &listSize, &dummyCount, &read_list_binary](PropertyLookup& f,
-                                                                 const Property& p,
-                                                                 uint8_t* dest,
-                                                                 size_t& destOffset,
-                                                                 const size_t destSize,
-                                                                 std::istream& _is)
+        read = [this, &listSize](PropertyLookup& f,
+                                 const Property& p,
+                                 uint8_t* dest,
+                                 size_t& destOffset,
+                                 const size_t destSize,
+                                 std::istream& _is)
         {
             if (!p.is_list())
 
@@ -236,11 +231,7 @@ parse_data(std::istream& is,
                                             destSize,
                                             _is);
 
-            read_list_binary(p.listType,
-                             &listSize,
-                             dummyCount,
-                             f.list_stride,
-                             _is); // the list size
+            listSize = read_list_size(p.listType, f.list_stride, _is);
 
             return read_property_binary(f.prop_stride * listSize,
                                         dest + destOffset,
@@ -249,35 +240,34 @@ parse_data(std::istream& is,
                                         _is); // properties in list
         };
 
-        skip = [this, &listSize, &dummyCount, &read_list_binary](PropertyLookup& f,
-                                                                 const Property& p,
-                                                                 std::istream& _is) noexcept
+        skip = [this, &listSize](PropertyLookup& f,
+                                 const Property& p,
+                                 std::istream& _is)
         {
             if (!p.is_list()) {
 
                 _is.read((char*)scratch, f.prop_stride);
+                check_read(_is, f.prop_stride);
                 return f.prop_stride;
             }
 
-            read_list_binary(p.listType,
-                             &listSize,
-                             dummyCount,
-                             f.list_stride,
-                             _is); // the list size (does not count for memory alloc)
+            // the list size (does not count for memory alloc)
+            listSize = read_list_size(p.listType, f.list_stride, _is);
             auto bytes_to_skip = f.prop_stride * listSize;
             _is.ignore(bytes_to_skip);
+            check_read(_is, bytes_to_skip);
 
             return bytes_to_skip;
         };
     }
     else {  // ascii
 
-        read = [this, &listSize, &dummyCount](PropertyLookup& f,
-                                              const Property& p,
-                                              uint8_t* dest,
-                                              size_t& destOffset,
-                                              const size_t destSize,
-                                              std::istream& _is)
+        read = [this, &listSize](PropertyLookup& f,
+                                 const Property& p,
+                                 uint8_t* dest,
+                                 size_t& destOffset,
+                                 const size_t destSize,
+                                 std::istream& _is)
         {
             if (!p.is_list())
 
@@ -289,13 +279,7 @@ parse_data(std::istream& is,
                                     _is);
 
             else {
-                dummyCount = 0;
-                read_property_ascii(p.listType,
-                                    f.list_stride,
-                                    &listSize,
-                                    dummyCount,
-                                    sizeof(listSize),
-                                    _is); // the list size
+                listSize = read_list_size(p.listType, f.list_stride, _is);
 
                 for (size_t i {}; i < listSize; ++i)
 
@@ -308,27 +292,28 @@ parse_data(std::istream& is,
             }
         };
 
-        skip = [this, &listSize, &dummyCount, &skip_ascii_buffer](PropertyLookup& f,
-                                                                  const Property& p,
-                                                                  std::istream& _is) noexcept
+        skip = [this, &listSize, &skip_ascii_buffer](PropertyLookup& f,
+                                                     const Property& p,
+                                                     std::istream& _is)
         {
             skip_ascii_buffer.clear();
             if (p.is_list()) {
 
-                dummyCount = 0;
-                read_property_ascii(p.listType,
-                                    f.list_stride,
-                                    &listSize,
-                                    dummyCount,
-                                    sizeof(listSize),
-                                    _is);  // the list size (does not count for memory alloc)
+                // the list size (does not count for memory alloc)
+                listSize = read_list_size(p.listType, f.list_stride, _is);
 
-                for (size_t i {}; i < listSize; ++i)
+                for (size_t i {}; i < listSize && _is; ++i)
                     _is >> skip_ascii_buffer; // properties in list
+
+                if (_is.fail())
+                    throw std::runtime_error("unexpected EOF. malformed file?");
 
                 return listSize * f.prop_stride;
             }
             _is >> skip_ascii_buffer;
+            if (_is.fail())
+                throw std::runtime_error("unexpected EOF. malformed file?");
+
             return f.prop_stride;
         };
     }
@@ -360,10 +345,13 @@ parse_data(std::istream& is,
                         // These lines will be changed when tinyply supports
                         // variable length lists. We add it here so our header data structure
                         // contains enough info to write it back out again (e.g. transcoding).
-                        if (property.listCount == 0)
-                            property.listCount = listSize;
-                        if (property.listCount != listSize)
-                            throw std::runtime_error("variable length lists are not supported yet.");
+                        // `listSize` is only meaningful right after reading a list.
+                        if (property.is_list()) {
+                            if (property.listCount == 0)
+                                property.listCount = listSize;
+                            if (property.listCount != listSize)
+                                throw std::runtime_error("variable length lists are not supported yet.");
+                        }
                     }
                     else
                         read(lookup,
@@ -381,8 +369,19 @@ parse_data(std::istream& is,
     }
 
     // Reset istream position to the start of the data
-    if (firstPass)
+    if (firstPass) {
         is.seekg(start, is.beg);
+        if (is.fail())
+            throw std::runtime_error("failed to rewind the input stream");
+    }
+}
+
+void FileIn::
+check_read(const std::istream& is,
+           const size_t expected)
+{
+    if (is.fail() || static_cast<size_t>(is.gcount()) != expected)
+        throw std::runtime_error("unexpected EOF. malformed file?");
 }
 
 size_t FileIn::
@@ -397,8 +396,61 @@ read_property_binary(const size_t stride,
 
     destOffset += stride;
     is.read(reinterpret_cast<char*>(dest), stride);
+    check_read(is, stride);
 
     return stride;
+}
+
+template<typename T>
+uint32_t to_list_size(const uint8_t* raw)
+{
+    T v;
+    std::memcpy(&v, raw, sizeof(T));
+
+    if constexpr (std::is_signed_v<T>)
+        if (v < 0)
+            throw std::runtime_error("negative list size. malformed file?");
+
+    return static_cast<uint32_t>(v);
+}
+
+uint32_t FileIn::
+read_list_size(const Type t,
+               const size_t stride,
+               std::istream& is)
+{
+    // Read into a zeroed buffer of the full uint32_t width, so that narrower
+    // count types never combine with stale bytes from a previous list.
+    alignas(uint32_t) uint8_t raw[sizeof(uint32_t)] {};
+
+    if (header.isBinary) {
+
+        if (stride > sizeof(raw))
+            throw std::runtime_error("list count type is too wide. malformed file?");
+
+        is.read(reinterpret_cast<char*>(raw), stride);
+        check_read(is, stride);
+
+        // Flip immediately: the count is needed while reading the file.
+        if (header.isBigEndian)
+            endian_reverse(t, raw);
+    }
+    else {
+        size_t offset {};
+        read_property_ascii(t, stride, raw, offset, sizeof(raw), is);
+    }
+
+    switch (t) {
+
+        case Type::INT8:   return to_list_size<int8_t>(raw);
+        case Type::UINT8:  return to_list_size<uint8_t>(raw);
+        case Type::INT16:  return to_list_size<int16_t>(raw);
+        case Type::UINT16: return to_list_size<uint16_t>(raw);
+        case Type::INT32:  return to_list_size<int32_t>(raw);
+        case Type::UINT32: return to_list_size<uint32_t>(raw);
+        default:
+            throw std::runtime_error("invalid list count type. malformed file?");
+    }
 }
 
 
@@ -414,6 +466,8 @@ read_property_ascii(const Type t,
         throw std::runtime_error("unexpected EOF. malformed file?");
 
     types.at(t).read_ascii(is, dest);
+    if (is.fail())
+        throw std::runtime_error("unexpected EOF or invalid value. malformed file?");
     destOffset += stride;
 
     return stride;
